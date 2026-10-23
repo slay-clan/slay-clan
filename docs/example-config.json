@@ -1,0 +1,112 @@
+{
+  "clanName": "Slay Clan",
+  "pointsWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
+  "activityWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
+  "pbWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
+  "ignoredContent": [],
+  "tasks": {
+    "Social": [
+      { "id": "trial-by-fire", "name": "Trial by Fire", "trigger": "CLOG", "points": 20, "once": true, "items": ["Fire cape"] },
+      { "id": "ghommals-approval", "name": "Ghommal's Approval", "trigger": "HOLD", "points": 20, "items": ["Ghommal's hilt 3"] },
+      { "id": "corrupted-conqueror", "name": "Corrupted Conqueror", "trigger": "CLOG", "points": 50, "once": true, "items": ["Gauntlet cape"] },
+      { "id": "quest-completed", "name": "Quest Completed", "trigger": "EQUIP", "points": 50, "items": ["Quest point cape", "Quest point cape (t)"] },
+      { "id": "clan-raids-together", "name": "The Clan That Raids Together", "trigger": "RAID:Chambers of Xeric*|RAID:Theatre of Blood|RAID:Theatre of Blood: Hard Mode|RAID:Tombs of Amascut|RAID:Tombs of Amascut: Expert Mode|RAID:Fractured Archive", "points": 50, "once": true, "minPlayers": 2, "clanOnly": true },
+      { "id": "safety-in-numbers", "name": "Safety in Numbers", "trigger": "CA:Just To Be Safe", "points": 200, "once": true, "clanOnly": true },
+      { "id": "slayer-veteran", "name": "Slayer Veteran", "trigger": "XP:Slayer", "points": 200, "minXp": 20000000 },
+      { "id": "achievement-unlocked", "name": "Achievement Unlocked", "trigger": "EQUIP", "points": 200, "items": ["Achievement diary cape", "Achievement diary cape (t)"] }
+    ],
+
+    "PvM": [
+      { "id": "through-the-inferno", "name": "Through the Inferno", "trigger": "CLOG", "points": 200, "once": true, "items": ["Infernal cape"] },
+      { "id": "champion-of-the-colosseum", "name": "Champion of the Colosseum", "trigger": "CLOG", "points": 200, "once": true, "items": ["Dizana's quiver*"] },
+      { "id": "dust-to-dust", "name": "Dust to Dust", "trigger": "CLOG", "points": 200, "once": true, "items": ["Sanguine dust", "Metamorphic dust"], "required": 2 },
+      { "id": "fang-of-the-desert", "name": "Fang of the Desert", "trigger": "CLOG", "points": 200, "once": true, "items": ["Cursed phalanx"] },
+      { "id": "dressed-in-blood", "name": "Dressed in Blood", "trigger": "EQUIP", "points": 400, "items": ["Sanguine torva full helm", "Sanguine torva platebody", "Sanguine torva platelegs"], "required": 3 },
+      { "id": "radiant-champion", "name": "Radiant Champion", "trigger": "EQUIP", "points": 400, "items": ["Radiant oathplate helm", "Radiant oathplate chest", "Radiant oathplate legs"], "required": 3 },
+      { "id": "no-fluke", "name": "No Fluke", "trigger": "CA:It Wasn't a Fluke", "points": 400, "once": true },
+      { "id": "into-the-deep", "name": "Into the Deep", "trigger": "DELVE", "points": 400, "once": true, "minLevel": 20 },
+      { "id": "ghommals-champion", "name": "Ghommal's Champion", "trigger": "HOLD", "points": 400, "items": ["Ghommal's hilt 5"] },
+      { "id": "morytania-together", "name": "Morytania Together", "trigger": "CA:Morytania Only", "points": 400, "once": true, "clanOnly": true },
+      { "id": "perfect-trio", "name": "The Perfect Trio", "trigger": "CA:Perfect Olm (Trio)", "points": 400, "once": true, "clanOnly": true },
+      { "id": "oathbound", "name": "Oathbound", "trigger": "CONTRACT:Contract of Oathplate Acquisition", "points": 600, "once": true }
+    ],
+
+    "Speed-chaser": [
+      { "id": "serpent-sprint", "name": "Serpent Sprint", "trigger": "KILL:Zulrah", "points": 100, "once": true, "maxTime": "1:00" },
+      { "id": "dragon-dash", "name": "Dragon Dash", "trigger": "KILL:Vorkath", "points": 100, "once": true, "maxTime": "1:15" },
+      { "id": "wake-up-call", "name": "Wake-Up Call", "trigger": "KILL:Phosani's Nightmare", "points": 200, "once": true, "maxTime": "6:00" },
+      { "id": "cave-runner", "name": "Cave Runner", "trigger": "KILL:TzTok-Jad", "points": 200, "once": true, "maxTime": "27:00" },
+      { "id": "corrupted-countdown", "name": "Corrupted Countdown", "trigger": "KILL:Corrupted Gauntlet", "points": 200, "once": true, "maxTime": "6:30" },
+      { "id": "colosseum-rush", "name": "Colosseum Rush", "trigger": "KILL:Sol Heredit", "points": 400, "once": true, "maxTime": "25:00" },
+      { "id": "infernal-hour", "name": "Infernal Hour", "trigger": "KILL:TzKal-Zuk", "points": 400, "once": true, "maxTime": "60:00" },
+      { "id": "desert-dash", "name": "Desert Dash", "trigger": "RAID:Tombs of Amascut: Expert Mode", "points": 400, "once": true, "maxTime": "25:00", "timeType": "total", "teamSize": 1 },
+      { "id": "lone-raider", "name": "Lone Raider", "trigger": "RAID:Chambers of Xeric*", "points": 400, "once": true, "maxTime": "16:00", "teamSize": 1 },
+      { "id": "chambers-crew", "name": "Chambers Crew", "trigger": "RAID:Chambers of Xeric*", "points": 400, "once": true, "maxTime": "35:00", "teamSize": 3 },
+      { "id": "theatre-troupe", "name": "Theatre Troupe", "trigger": "RAID:Theatre of Blood|RAID:Theatre of Blood: Hard Mode", "points": 400, "once": true, "maxTime": "20:00", "timeType": "challenge", "teamSize": 3 }
+    ],
+
+    "Clogging": [
+      { "id": "getting-started", "name": "Getting Started", "trigger": "CLOG_COUNT", "points": 100, "minCount": 400 },
+      { "id": "hooked-on-clogging", "name": "Hooked on Clogging", "trigger": "CLOG", "points": 100, "once": true, "items": ["Pirate's hook"] },
+      { "id": "relic-hunter", "name": "Relic Hunter", "trigger": "CLOG", "points": 100, "once": true, "items": ["Ring of endurance*"] },
+      { "id": "wilderness-relic", "name": "Wilderness Relic", "trigger": "CLOG", "points": 200, "once": true, "items": ["Craw's bow*", "Thammaron's sceptre*", "Viggora's chainmace*"] },
+      {
+        "id": "pet-hoarder", "name": "Pet Hoarder", "trigger": "CLOG", "points": 200, "once": true, "required": 10,
+        "items": [
+          "Abyssal orphan", "Ikkle Hydra", "Callisto cub", "Hellpuppy", "Pet chaos elemental", "Pet Zilyana", "Pet dark core",
+          "Pet Dagannoth Prime", "Pet Dagannoth Supreme", "Pet Dagannoth Rex", "TzRek-Jad", "Pet General Graardor", "Baby Mole",
+          "Noon", "Jal-Nib-Rek", "Kalphite Princess", "Prince Black Dragon", "Pet Kraken", "Pet Kree'arra", "Pet K'ril Tsutsaroth",
+          "Scorpia's offspring", "Skotos", "Pet Smoke Devil", "Venenatis spiderling", "Vet'ion Jr.", "Vorki", "Phoenix",
+          "Pet Snakeling", "Olmlet", "Lil' Zik", "Bloodhound", "Pet Penance Queen", "Heron", "Rock golem", "Beaver",
+          "Baby chinchompa", "Giant Squirrel", "Tangleroot", "Rocky", "Rift guardian", "Herbi", "Chompy chick", "Sraracha",
+          "Smolcano", "Youngllef", "Little Nightmare", "Lil' Creator", "Tiny tempor", "Nexling", "Abyssal protector",
+          "Tumeken's guardian", "Muphin", "Wisp", "Baron", "Butch", "Lil'viathan", "Scurry", "Smol Heredit", "Quetzin", "Nid",
+          "Huberte", "Moxi", "Bran", "Yami", "Dom", "Soup", "Gull", "Beef", "Maggot marquess", "Mr McGroot", "Aggy"
+        ]
+      },
+      { "id": "log-enthusiast", "name": "Log Enthusiast", "trigger": "CLOG_COUNT", "points": 200, "minCount": 700 },
+      { "id": "gone-fishing", "name": "Gone Fishing", "trigger": "CLOG", "points": 200, "once": true, "items": ["Big bass", "Big swordfish", "Big shark"], "required": 3 },
+      { "id": "chicken-chaser", "name": "Chicken Chaser", "trigger": "CLOG", "points": 400, "once": true, "items": ["Evil chicken head", "Evil chicken wings", "Evil chicken legs", "Evil chicken feet"], "required": 2 },
+      { "id": "champion-of-champions", "name": "Champion of Champions", "trigger": "CLOG", "points": 400, "once": true, "items": ["Champion's cape"] },
+      { "id": "last-one-standing", "name": "Last One Standing", "trigger": "CLOG", "points": 400, "once": true, "items": ["Victor's cape (100)"] },
+      { "id": "queens-favour", "name": "Queen's Favour", "trigger": "CLOG", "points": 600, "once": true, "items": ["Pet penance queen"] },
+      { "id": "ancient-glory", "name": "Ancient Glory", "trigger": "CLOG", "points": 600, "once": true, "items": ["3rd age*"] },
+      { "id": "log-master", "name": "Log Master", "trigger": "CLOG_COUNT", "points": 600, "minCount": 1200 }
+    ],
+
+    "Repeatable": [
+      { "id": "clan-raid", "name": "Clan Raid", "trigger": "RAID:Chambers of Xeric*|RAID:Theatre of Blood|RAID:Theatre of Blood: Hard Mode|RAID:Tombs of Amascut|RAID:Tombs of Amascut: Expert Mode|RAID:Fractured Archive", "points": 10, "minPlayers": 2, "clanOnly": true },
+      { "id": "awakened-slayer", "name": "Awakened Slayer", "trigger": "KILL:Duke Sucellus (Awakened)|KILL:Vardorvis (Awakened)|KILL:Leviathan (Awakened)|KILL:Whisperer (Awakened)", "points": 20 },
+      { "id": "backpack-for-more", "name": "Backpack for More", "trigger": "KILL:TzKal-Zuk|KILL:Sol Heredit", "points": 25, "minKillCount": 2 },
+      { "id": "jar-collector", "name": "Jar Collector", "trigger": "LOOT", "points": 30, "items": ["Jar of*"] },
+      { "id": "deja-vu", "name": "Déjà Vu", "trigger": "PET_DUPLICATE", "points": 50 },
+      {
+        "id": "raid-relics", "name": "Raid Relics", "trigger": "LOOT", "points": 50,
+        "items": [
+          "Metamorphic dust", "Sanguine dust",
+          "Twisted ancestral colour kit", "Holy ornament kit", "Sanguine ornament kit",
+          "Cursed phalanx", "Menaphite ornament kit", "Masori crafting kit",
+          "Remnant of Akkha", "Remnant of Ba-Ba", "Remnant of Kephri", "Remnant of Zebak", "Ancient remnant"
+        ]
+      },
+      { "id": "contract-fulfilled", "name": "Contract Fulfilled", "trigger": "CONTRACT:*", "points": 100 },
+      {
+        "id": "new-pet-new-boss", "name": "New Pet, New Boss", "trigger": "CLOG", "points": 200,
+        "items": [
+          "Abyssal orphan", "Aggy", "Baby Mole", "Baron", "Bran", "Beef", "Butch", "Callisto cub", "Dom", "Gull",
+          "Hellpuppy", "Huberte", "Ikkle Hydra", "Jal-Nib-Rek", "Kalphite Princess", "Lil' Zik", "Lil'viathan",
+          "Little Nightmare", "Maggot marquess", "Moxi", "Muphin", "Nexling", "Nid", "Noon", "Olmlet",
+          "Pet chaos elemental", "Pet Dagannoth Prime", "Pet Dagannoth Rex", "Pet Dagannoth Supreme", "Pet dark core",
+          "Pet General Graardor", "Pet K'ril Tsutsaroth", "Pet Kraken", "Pet Kree'arra", "Pet Smoke Devil",
+          "Pet Snakeling", "Pet Zilyana", "Phoenix", "Prince Black Dragon", "Scorpia's offspring", "Scurry", "Skotos",
+          "Smolcano", "Smol Heredit", "Sraracha", "Tiny tempor", "Tumeken's guardian", "TzRek-Jad",
+          "Venenatis spiderling", "Vet'ion Jr.", "Vorki", "Wisp", "Yami", "Youngllef"
+        ]
+      }
+    ],
+
+    "Valuable drops": [
+      { "id": "drops", "name": "Valuable drop", "trigger": "DROP", "tier": "Repeatable", "minValue": 500000, "valuePerPoint": 1000000, "includeStackable": false }
+    ]
+  }
+}
