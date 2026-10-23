@@ -53,7 +53,7 @@ If Discord could not be reached, the post is kept and sent again at your next lo
 
 ## For clan staff
 
-The tasks, points and Discord webhook live in a JSON file that the clan hosts, so they can be changed without updating the plugin. Players pick up changes within about 10 minutes. See [docs/config.md](docs/config.md) for every field and trigger, and [docs/example-config.json](docs/example-config.json) for a full example. The same file has an `ignoredContent` list: a boss or raid named there gives no kill, raid, contract or personal best post, which is how the clan switches new content off within minutes if its game messages turn out to post things they should not. Combat achievement, collection log and delve tasks are not affected by the list.
+The tasks, points and Discord webhook live in a JSON file that the clan hosts, so they can be changed without updating the plugin. Players pick up changes within about 10 minutes. Nothing is hard-wired to Slay Clan: the clan name, the webhooks and every task come from that file, so another clan can run the plugin with a file of its own. See [docs/config.md](docs/config.md) for every field and trigger, and [docs/example-config.json](docs/example-config.json) for a full example. The same file has an `ignoredContent` list: a boss or raid named there gives no kill, raid, contract or personal best post, which is how the clan switches new content off within minutes if its game messages turn out to post things they should not. Combat achievement, collection log and delve tasks are not affected by the list.
 
 Anyone with the config URL can read the webhook. If it leaks, delete the webhook in Discord, create a new one and update the config file.
 
