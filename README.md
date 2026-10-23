@@ -4,6 +4,8 @@ The Slay Clan plugin posts your completed clan tasks to the Slay Clan Discord au
 
 ## Getting started
 
+![The plugin's settings panel](docs/images/settings.png)
+
 1. Install **Slay Clan** from the RuneLite Plugin Hub.
 2. Open the plugin settings and paste the config URL from the clan Discord into **Clan config URL**. Ask a clan staff member if you cannot find it.
 3. Fill in **Discord name** with your nickname in the Slay Clan Discord, which is your main's name. Posts and points use this name, also when you play on an alt.
