@@ -791,6 +791,22 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void postsNoFracturedArchivePersonalBestWhenFewerNamesAreReadThanTheGamesPartySlots()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, true));
+		remoteConfig.setPbWebhookUrl(PB);
+		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
+		when(participantReader.read("RAID:Fractured Archive")).thenReturn(List.of(ME, "Raidbuddy"));
+		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
+
+		chat("The Fractured Archive: Total completion time: <col=ef1020>2:25.80</col> (new personal best)");
+		chat("Your completed Fractured Archive count is: <col=ff0000>1</col>.");
+		ticks(3);
+
+		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+	}
+
+	@Test
 	public void postsNoRaidPersonalBestWhenAnOutsiderWasInTheParty()
 	{
 		tasks();

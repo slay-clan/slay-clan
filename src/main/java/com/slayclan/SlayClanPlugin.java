@@ -752,9 +752,9 @@ public class SlayClanPlugin extends Plugin
 			return;
 		}
 		List<String> party = soloByTheGamesCount() ? List.of(account()) : participantReader.read(trigger);
-		if (coxPartyOnlyPartlyRead(trigger, party))
+		if (partyOnlyPartlyRead(trigger, party))
 		{
-			log.debug("Personal best at {} not posted: team size {} but only {} found, cannot verify the clan check", boss, lastRaidTeamSize, party);
+			log.debug("Personal best at {} not posted: team size {} but only {} found, cannot verify the clan check", boss, gamesTeamSize(trigger), party);
 			return;
 		}
 		if (!membershipChecker.allMembers(client.getClanSettings(), remoteConfig.getClanName(), party))
@@ -885,12 +885,18 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	/**
-	 * The raid side panel can list fewer names than the game's team size, and then the missing players cannot be
-	 * checked against the clan.
+	 * The party list can hold fewer names than the game's team size, Chambers of Xeric's side panel and the
+	 * Fractured Archive's name slots alike, and then the missing players cannot be checked against the clan.
 	 */
-	private boolean coxPartyOnlyPartlyRead(String trigger, List<String> party)
+	private boolean partyOnlyPartlyRead(String trigger, List<String> party)
 	{
-		return knowsCoxTeamSize(trigger) && party.size() < lastRaidTeamSize;
+		return party.size() < gamesTeamSize(trigger);
+	}
+
+	/** The team size the game itself states, from the chat line or the party slots, or 0 when it states none. */
+	private int gamesTeamSize(String trigger)
+	{
+		return knowsCoxTeamSize(trigger) ? lastRaidTeamSize : participantReader.gamesTeamSize(trigger);
 	}
 
 	private static String bossName(String trigger)
@@ -931,9 +937,9 @@ public class SlayClanPlugin extends Plugin
 		}
 
 		List<String> participants = participantReader.read(trigger);
-		if (coxPartyOnlyPartlyRead(trigger, participants))
+		if (partyOnlyPartlyRead(trigger, participants))
 		{
-			log.info("Not posted {}: team size {} but only {} found, cannot verify the clan check", trigger, lastRaidTeamSize, participants);
+			log.info("Not posted {}: team size {} but only {} found, cannot verify the clan check", trigger, gamesTeamSize(trigger), participants);
 			return;
 		}
 		int teamSize = knowsCoxTeamSize(trigger) ? lastRaidTeamSize : participants.size();

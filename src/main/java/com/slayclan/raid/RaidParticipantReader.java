@@ -12,6 +12,7 @@ import net.runelite.api.Client;
 import net.runelite.api.WorldView;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarClientID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.util.Text;
 
@@ -40,6 +41,11 @@ public class RaidParticipantReader
 		VarClientID.TFA_CLIENT_NAME3, VarClientID.TFA_CLIENT_NAME4, VarClientID.TFA_CLIENT_NAME5,
 		VarClientID.TFA_CLIENT_NAME6, VarClientID.TFA_CLIENT_NAME7
 	};
+	// Slot 0 is the player themselves and has no varbit
+	private static final int[] TFA_PARTY_SLOTS = {
+		VarbitID.TFA_CLIENT_P1, VarbitID.TFA_CLIENT_P2, VarbitID.TFA_CLIENT_P3, VarbitID.TFA_CLIENT_P4,
+		VarbitID.TFA_CLIENT_P5, VarbitID.TFA_CLIENT_P6, VarbitID.TFA_CLIENT_P7
+	};
 
 	private final Client client;
 
@@ -53,6 +59,20 @@ public class RaidParticipantReader
 	{
 		List<String> party = raidPartyList(trigger);
 		return party.isEmpty() ? scenePlayers() : party;
+	}
+
+	/**
+	 * How many players the game says are in the party, or 0 when it does not say. The Fractured Archive keeps
+	 * one varbit per party slot, which is set while a player fills it, so the count stays right even when the
+	 * name list could not be read.
+	 */
+	public int gamesTeamSize(String trigger)
+	{
+		if (!trigger.startsWith(FRACTURED_ARCHIVE))
+		{
+			return 0;
+		}
+		return 1 + (int) Arrays.stream(TFA_PARTY_SLOTS).filter(slot -> client.getVarbitValue(slot) != 0).count();
 	}
 
 	private List<String> raidPartyList(String trigger)

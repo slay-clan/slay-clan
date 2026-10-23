@@ -3,6 +3,7 @@ package com.slayclan.raid;
 import java.util.List;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.VarClientID;
+import net.runelite.api.gameval.VarbitID;
 import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 import static org.mockito.Mockito.mock;
@@ -29,6 +30,21 @@ public class RaidParticipantReaderTest
 		when(client.getVarcStrValue(VarClientID.TFA_CLIENT_NAME0)).thenReturn("Clan mate");
 
 		assertEquals(List.of("Clan mate"), reader.read("RAID:Fractured Archive"));
+	}
+
+	@Test
+	public void fracturedArchiveTeamSizeCountsTheFilledPartySlotsPlusThePlayer()
+	{
+		when(client.getVarbitValue(VarbitID.TFA_CLIENT_P1)).thenReturn(1);
+		when(client.getVarbitValue(VarbitID.TFA_CLIENT_P2)).thenReturn(1);
+
+		assertEquals(3, reader.gamesTeamSize("RAID:Fractured Archive"));
+	}
+
+	@Test
+	public void otherRaidsStateNoTeamSizeThroughTheReader()
+	{
+		assertEquals(0, reader.gamesTeamSize("RAID:Tombs of Amascut"));
 	}
 
 	@Test
