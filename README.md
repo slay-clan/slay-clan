@@ -8,7 +8,7 @@ The Slay Clan plugin posts your completed clan tasks to the Slay Clan Discord au
 
 1. Install **Slay Clan** from the RuneLite Plugin Hub.
 2. Open the plugin settings and paste the config URL from the clan Discord into **Clan config URL**. Ask a clan staff member if you cannot find it.
-3. Fill in **Discord name** with your nickname in the Slay Clan Discord, which is your main's name. Posts and points use this name, also when you play on an alt.
+3. Fill in **Discord name** with your Discord username, the one under your profile that never changes. Your nickname in the Slay Clan Discord works too, but a nickname can change, and then the bot can no longer find you. The name is only used to find you; everything the bot posts shows your server nickname as usual. Points go to your main also when you play on an alt.
 4. Turn on **Enable posting** and accept the warning.
 5. In the game settings, turn on **Collection log - New addition notification**. The popup setting does not matter. The plugin reminds you in chat at login when it is off.
 6. Keep RuneLite's built-in **Loot Tracker** plugin enabled. It is on by default and the plugin reads drops from it.
