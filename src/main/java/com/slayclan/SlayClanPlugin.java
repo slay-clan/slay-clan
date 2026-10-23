@@ -177,7 +177,6 @@ public class SlayClanPlugin extends Plugin
 	@Inject
 	private SessionManager sessionManager;
 
-	@Inject
 	private final RaidCompletionDetector raidCompletionDetector = new RaidCompletionDetector();
 	private final RaidTeamSizeDetector raidTeamSizeDetector = new RaidTeamSizeDetector();
 	private final DurationDetector durationDetector = new DurationDetector();
