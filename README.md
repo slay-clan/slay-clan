@@ -8,7 +8,7 @@ The Slay Clan plugin posts your completed clan tasks to the Slay Clan Discord au
 
 1. Install **Slay Clan** from the RuneLite Plugin Hub.
 2. Open the plugin settings and paste the config URL from the clan Discord into **Clan config URL**. Ask a clan staff member if you cannot find it.
-3. Fill in **Discord name** with your Discord username, the one under your profile that never changes. Your nickname in the Slay Clan Discord works too, but a nickname can change, and then the bot can no longer find you. The name is only used to find you; everything the bot posts shows your server nickname as usual. Points go to your main also when you play on an alt.
+3. Fill in **Discord username** with your Discord username, the one under your profile that never changes. Your nickname in the Slay Clan Discord works too, but a nickname can change, and then the bot can no longer find you. The name is only used to find you; everything the bot posts shows your server nickname as usual. Points go to your main also when you play on an alt.
 4. Turn on **Enable posting** and accept the warning.
 5. In the game settings, turn on **Collection log - New addition notification**. The popup setting does not matter. The plugin reminds you in chat at login when it is off.
 6. Keep RuneLite's built-in **Loot Tracker** plugin enabled. It is on by default and the plugin reads drops from it.
@@ -29,7 +29,7 @@ If you use several RuneLite profiles, fill in the settings in each of them. One-
 - **Activity feed** (when the clan has turned it on): every new collection log item and combat achievement, your combat achievement and collection log progress, and a full list of both when you log in or open your collection log. These go to a hidden channel the clan's bot reads; they are not clan task posts and give no points by themselves.
 - **Personal bests** (when the clan has turned it on): a new personal best is posted with a screenshot. The game only keeps one personal best per boss, so the plugin also posts your fastest kill per team size since installing, and reports your current personal best once per boss, and once per raid each time you log in, so the PB leaderboard can be filled in. The post lists the team size and the clan members who were in your team, so the bot can give each of them their place on the board; nobody outside the clan is ever named. The bot decides what qualifies for the board. For a boss where the game does not say which team size your stored best was set at, the bot asks you in point-approval with one button per team size. Everyone can see the question, only you can press the buttons.
 
-Each post contains your Discord name, the task details and a screenshot of your whole RuneLite window, including the chat. Nothing else is sent, and only to the clan Discord.
+Each post contains your Discord username, your in-game name, the task details and a screenshot of your whole RuneLite window, including the chat. Nothing else is sent, and only to the clan Discord.
 
 ## What the plugin cannot see
 

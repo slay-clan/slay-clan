@@ -38,7 +38,7 @@ public interface SlayClanConfig extends Config
 
 	@ConfigItem(
 		keyName = "discordName",
-		name = "Discord name",
+		name = "Discord username",
 		description = "Your Discord username, which never changes. Your nickname in the Slay Clan Discord works too. The clan's bot uses it to find you",
 		position = 2
 	)
