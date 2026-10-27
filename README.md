@@ -13,7 +13,7 @@ The Slay Clan plugin posts your completed clan tasks to the Slay Clan Discord au
 5. In the game settings, turn on **Collection log - New addition notification**. The popup setting does not matter. The plugin reminds you in chat at login when it is off.
 6. Keep RuneLite's built-in **Loot Tracker** plugin enabled. It is on by default and the plugin reads drops from it.
 7. Log in to RuneLite with a **RuneLite account**, using the login button at the top right of the RuneLite window. This is separate from your Jagex account and required for posting. The plugin also remembers which one-time tasks it has already posted, shared between your main and alts, and only a RuneLite account carries that memory over to other computers. The clan's bot refuses a one-time task you already have approved, so a duplicate never gives points twice, but the memory keeps the duplicate post from being made at all.
-8. Open your **collection log** once. The plugin then sends your full log to the clan's activity feed, so the members hub knows what you already have. New items are sent as you get them.
+8. Open your **collection log** once. The plugin then sends your full log to the clan's activity feed, so the members hub knows what you already have, and posts every one-time collection log task you have already completed. New items are sent as you get them.
 
 That's it. Tasks and points are managed centrally by the clan, so you never have to update anything yourself.
 
@@ -33,7 +33,7 @@ Each post contains your Discord username, your in-game name, the task details an
 
 ## What the plugin cannot see
 
-- **Tasks you completed before installing the plugin.** The game only announces a new collection log item or combat achievement once, and the plugin does not post equipment or thresholds you had already reached. Submit those to the bot manually. The exception is a collection log task that needs several items, such as Pet Hoarder: the plugin checks it against your whole collection log when you open it, so items from before the install count.
+- **Tasks you completed before installing the plugin.** The game only announces a new combat achievement once, and the plugin does not post equipment or thresholds you had already reached. Submit those to the bot manually. Collection log tasks are the exception: the plugin checks every one-time collection log task against your whole collection log when you open it, so a pet, cape or item from before the install is posted on its own the first time you open the log.
 - **Tasks outside the game**, such as clan events, SOTW, BOTW, ROTM, recruiting and Discord boosts. Submit those manually as before.
 
 ## Reporting a bug

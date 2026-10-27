@@ -54,8 +54,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -613,19 +615,20 @@ public class SlayClanPlugin extends Plugin
 		{
 			activityReporter.reportClogSnapshot(activityWebhook, discordName(), account(), client.getAccountHash(), items);
 		}
-		checkClogSetTasks(items);
+		checkClogTasksOnWholeLog(items);
 	}
 
 	/**
-	 * A one-time collection log task that needs several of its items is judged on the whole log whenever the log is
-	 * opened, so items owned before the plugin was installed count. Single-item tasks are posted per new item instead,
-	 * and repeatable ones only per new item, since the whole log would complete them again at every opening.
+	 * Every one-time collection log task is judged on the whole log whenever the log is opened, so items owned before
+	 * the plugin was installed count. Repeatable tasks are only judged per new item, since the whole log would complete
+	 * them again at every opening.
 	 */
-	private void checkClogSetTasks(List<OwnedItem> ownedItems)
+	private void checkClogTasksOnWholeLog(List<OwnedItem> ownedItems)
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
 		List<String> owned = ownedItems.stream().map(OwnedItem::getName).collect(Collectors.toList());
 		List<TaskDefinition> completed = new ArrayList<>();
+		Map<String, String> singleItems = new HashMap<>();
 		for (TaskDefinition task : taskMatcher.byTrigger(remoteConfig, Triggers.CLOG))
 		{
 			if (!awaitsWholeLogJudgement(task))
@@ -637,6 +640,10 @@ public class SlayClanPlugin extends Plugin
 			if (clogTaskEvaluator.isComplete(task, progress))
 			{
 				completed.add(task);
+				if (progress.size() == 1)
+				{
+					singleItems.put(task.getId(), progress.iterator().next());
+				}
 				progressStore.saveLoggedItems(task.getId(), Set.of());
 			}
 			else
@@ -646,18 +653,37 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!completed.isEmpty())
 		{
-			postTasks(remoteConfig, completed);
+			postClogTasks(remoteConfig, completed, singleItems);
 		}
 	}
 
 	private boolean awaitsWholeLogJudgement(TaskDefinition task)
 	{
-		return judgedOnWholeLog(task) && notYetPosted(task);
+		return task.isOnce() && notYetPosted(task);
 	}
 
-	private static boolean judgedOnWholeLog(TaskDefinition task)
+	/**
+	 * A task completed by a single item names that item, like a task completed by a new item in chat does.
+	 */
+	private void postClogTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks, Map<String, String> singleItems)
 	{
-		return task.getRequired() > 1 && task.isOnce();
+		Instant completedAt = Instant.now();
+		String account = account();
+		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
+		for (TaskDefinition task : tasks)
+		{
+			progressStore.markCompleted(task.getId());
+			String item = singleItems.get(task.getId());
+			if (item == null)
+			{
+				posts.add(withScreenshot -> messageFormatter.build(discordName(), account, task, List.of(), completedAt, withScreenshot));
+			}
+			else
+			{
+				posts.add(withScreenshot -> messageFormatter.buildItemTask(discordName(), account, task, item, null, completedAt, withScreenshot));
+			}
+		}
+		postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
 	}
 
 	private void reportStoredPersonalBests()

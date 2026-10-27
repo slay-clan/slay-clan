@@ -501,6 +501,37 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void postsASingleItemClogTaskWithTheItemNamedWhenTheOpenedLogHoldsIt()
+	{
+		TaskDefinition fireCape = withItems(task("fire-cape", "CLOG", null, 0, false), "Fire cape");
+		fireCape.setOnce(true);
+		tasks(fireCape);
+		login();
+
+		openCollectionLogWith("Bandos chestplate", "Fire cape");
+		ticks(3);
+
+		assertEquals(List.of("Fire Cape"), postedTasks());
+		assertEquals("Fire cape", postedField("Item"));
+		assertTrue(completed.contains("fire-cape"));
+	}
+
+	@Test
+	public void postsASingleItemClogTaskOnlyOnceWhenTheItemLaterArrivesInChatToo()
+	{
+		TaskDefinition fireCape = withItems(task("fire-cape", "CLOG", null, 0, false), "Fire cape");
+		fireCape.setOnce(true);
+		tasks(fireCape);
+		login();
+
+		openCollectionLogWith("Fire cape");
+		ticks(3);
+		chat("New item added to your collection log: <col=ff0000>Fire cape</col>");
+
+		assertEquals(List.of("Fire Cape"), postedTasks());
+	}
+
+	@Test
 	public void judgesARepeatableClogTaskOnlyPerNewItemNotOnTheOpenedLog()
 	{
 		TaskDefinition pets = withItems(task("new-pets", "CLOG", null, 0, false), "Vorki", "Olmlet", "Pet snakeling");
@@ -1039,6 +1070,17 @@ public class SlayClanPluginFlowTest
 	private void tasks(TaskDefinition... tasks)
 	{
 		remoteConfig.setTasks(List.of(tasks));
+	}
+
+	private String postedField(String name)
+	{
+		ArgumentCaptor<WebhookPayload> payloads = ArgumentCaptor.forClass(WebhookPayload.class);
+		verify(webhookClient).send(eq(WEBHOOK), payloads.capture(), (byte[]) any());
+		return payloads.getValue().getEmbeds().get(0).getFields().stream()
+			.filter(field -> field.getName().equals(name))
+			.map(WebhookPayload.Field::getValue)
+			.findFirst()
+			.orElse(null);
 	}
 
 	private List<String> postedTasks()

@@ -67,7 +67,7 @@ Names in triggers and item lists ignore case and apostrophes. A trigger or item 
 | `minKillCount` | Only counts from this kill count on, for example `2` for a second Infernal cape |
 | `clanOnly` | For `RAID:`, `KILL:` and `CA:` tasks. `true` requires everyone in the party, or everyone around you outside raids, to be a clan member. Otherwise being in the clan yourself is enough |
 | `items` | Item names for `CLOG`, `LOOT`, `EQUIP` and `HOLD` |
-| `required` | How many different items from `items` are needed. Defaults to 1, meaning any one of them. A one-time task (`once: true`) needing more than one is also judged on the whole collection log each time the player opens it, so items owned before the plugin was installed count, which is how `Pet Hoarder` is detected. A repeatable task is only judged per new item, since the whole log would complete it again at every opening |
+| `required` | How many different items from `items` are needed. Defaults to 1, meaning any one of them. Every one-time task (`once: true`) is also judged on the whole collection log each time the player opens it, so items owned before the plugin was installed count, which is how `Pet Hoarder` and an already owned cape or pet are detected. A task completed by a single item is posted with that item named. A repeatable task is only judged per new item, since the whole log would complete it again at every opening |
 | `sources` | For `LOOT`. Loot sources that count, as named by the Loot Tracker. Leave out to accept any source |
 | `minValue` | For `DROP`. Minimum GE value of a single item in gp |
 | `valuePerPoint` | For `DROP`. Points are the item value divided by this, rounded to the nearest whole number with .5 rounding up, so 4.4M gives 4 and 4.5M gives 5 points |
