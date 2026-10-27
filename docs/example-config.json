@@ -28,7 +28,7 @@
       { "id": "ghommals-champion", "name": "Ghommal's Champion", "trigger": "HOLD", "points": 400, "items": ["Ghommal's hilt 5"] },
       { "id": "morytania-together", "name": "Morytania Together", "trigger": "CA:Morytania Only", "points": 400, "once": true, "clanOnly": true },
       { "id": "perfect-trio", "name": "The Perfect Trio", "trigger": "CA:Perfect Olm (Trio)", "points": 400, "once": true, "clanOnly": true },
-      { "id": "oathbound", "name": "Oathbound", "trigger": "CONTRACT:Contract of Oathplate Acquisition", "points": 600, "once": true }
+      { "id": "oathbound", "name": "Oathbound", "trigger": "CONTRACT:Contract of Oathplate Acquisition", "points": 600, "once": true, "clanOnly": true }
     ],
 
     "Speed-chaser": [
@@ -41,8 +41,8 @@
       { "id": "infernal-hour", "name": "Infernal Hour", "trigger": "KILL:TzKal-Zuk", "points": 400, "once": true, "maxTime": "60:00" },
       { "id": "desert-dash", "name": "Desert Dash", "trigger": "RAID:Tombs of Amascut: Expert Mode", "points": 400, "once": true, "maxTime": "25:00", "timeType": "total", "teamSize": 1 },
       { "id": "lone-raider", "name": "Lone Raider", "trigger": "RAID:Chambers of Xeric*", "points": 400, "once": true, "maxTime": "16:00", "teamSize": 1 },
-      { "id": "chambers-crew", "name": "Chambers Crew", "trigger": "RAID:Chambers of Xeric*", "points": 400, "once": true, "maxTime": "35:00", "teamSize": 3 },
-      { "id": "theatre-troupe", "name": "Theatre Troupe", "trigger": "RAID:Theatre of Blood|RAID:Theatre of Blood: Hard Mode", "points": 400, "once": true, "maxTime": "20:00", "timeType": "challenge", "teamSize": 3 }
+      { "id": "chambers-crew", "name": "Chambers Crew", "trigger": "RAID:Chambers of Xeric*", "points": 400, "once": true, "maxTime": "35:00", "teamSize": 3, "clanOnly": true },
+      { "id": "theatre-troupe", "name": "Theatre Troupe", "trigger": "RAID:Theatre of Blood|RAID:Theatre of Blood: Hard Mode", "points": 400, "once": true, "maxTime": "20:00", "timeType": "challenge", "teamSize": 3, "clanOnly": true }
     ],
 
     "Clogging": [
@@ -89,7 +89,7 @@
           "Remnant of Akkha", "Remnant of Ba-Ba", "Remnant of Kephri", "Remnant of Zebak", "Ancient remnant"
         ]
       },
-      { "id": "contract-fulfilled", "name": "Contract Fulfilled", "trigger": "CONTRACT:*", "points": 100 },
+      { "id": "contract-fulfilled", "name": "Contract Fulfilled", "trigger": "CONTRACT:*", "points": 100, "clanOnly": true },
       {
         "id": "new-pet-new-boss", "name": "New Pet, New Boss", "trigger": "CLOG", "points": 200,
         "items": [

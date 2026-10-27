@@ -23,7 +23,7 @@ If you use several RuneLite profiles, fill in the settings in each of them. One-
 
 - **One-time tasks** (Social, PvM, Speed-chaser and Clogging) are posted the first time the plugin sees you complete them.
 - **Repeatable tasks** are posted every time.
-- **Group tasks** such as clan raids only count when everyone in the party is a Slay Clan member. Everyone with the plugin posts their own completion, so the bot can award points per person.
+- **Group tasks** such as clan raids only count when everyone in the party is a Slay Clan member. Everyone with the plugin posts their own completion, so the bot can award points per person, and the post names the clan members who were in the team.
 - **Valuable drops** are posted with the item and its Grand Exchange value. The plugin cannot know who you split with, so the clan's bot asks you in point-approval: pick the others in the splitter list, or press On my own. You are always counted as a splitter yourself. Unlike the form you get from `/activity drop`, this one is not private: everyone in the channel can see it from the start, but only you can answer it, and it becomes the approval once you do. Staff can close a question you never answer.
 - **PvP never counts.** Loot from other players and loot keys are ignored.
 - **Activity feed** (when the clan has turned it on): every new collection log item and combat achievement, your combat achievement and collection log progress, and a full list of both when you log in or open your collection log. These go to a hidden channel the clan's bot reads; they are not clan task posts and give no points by themselves.

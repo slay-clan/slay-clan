@@ -22,7 +22,22 @@ public class MessageFormatter
 
 	public WebhookPayload build(String discordName, String account, TaskDefinition task, Instant completedAt, boolean withScreenshot)
 	{
-		return payload(discordName, TASK_DESCRIPTION, withAccount(taskFields(task), account), PostKind.TASK, completedAt, withScreenshot);
+		return build(discordName, account, task, List.of(), completedAt, withScreenshot);
+	}
+
+	/**
+	 * A task done in a team names the clan members in it, so staff see who was there. A party of one is the
+	 * member themselves and adds nothing.
+	 */
+	public WebhookPayload build(String discordName, String account, TaskDefinition task, List<String> party, Instant completedAt,
+		boolean withScreenshot)
+	{
+		List<WebhookPayload.Field> fields = withAccount(taskFields(task), account);
+		if (party.size() > 1)
+		{
+			fields.add(new WebhookPayload.Field("Party", String.join(", ", party), false));
+		}
+		return payload(discordName, TASK_DESCRIPTION, fields, PostKind.TASK, completedAt, withScreenshot);
 	}
 
 	public WebhookPayload buildItemTask(String discordName, String account, TaskDefinition task, String itemName, String source,

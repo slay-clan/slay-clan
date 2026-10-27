@@ -33,6 +33,24 @@ public class MessageFormatterTest
 	}
 
 	@Test
+	public void teamTaskNamesTheClanMembersInTheParty()
+	{
+		WebhookPayload.Embed embed = formatter.build("Clanmate", "Clanmate", clanRaid(), List.of("Clanmate", "Raidbuddy", "Third"),
+			COMPLETED_AT, true).getEmbeds().get(0);
+
+		assertEquals(new WebhookPayload.Field("Party", "Clanmate, Raidbuddy, Third", false), embed.getFields().get(4));
+	}
+
+	@Test
+	public void soloTaskHasNoPartyField()
+	{
+		WebhookPayload.Embed embed = formatter.build("Clanmate", "Clanmate", clanRaid(), List.of("Clanmate"), COMPLETED_AT, true)
+			.getEmbeds().get(0);
+
+		assertEquals(4, embed.getFields().size());
+	}
+
+	@Test
 	public void omitsImageAndSaysSoWithoutScreenshot()
 	{
 		WebhookPayload.Embed embed = formatter.build("Clanmate", "Clanmate", clanRaid(), COMPLETED_AT, false).getEmbeds().get(0);

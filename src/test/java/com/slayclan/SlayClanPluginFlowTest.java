@@ -227,6 +227,39 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void raidTaskPostNamesTheClanMembersInTheTeam()
+	{
+		tasks(task("clan-raid", "RAID:*", null, 0, true));
+		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
+		when(clan.findMember("Third")).thenReturn(mock(ClanMember.class));
+		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy", "Third"));
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
+		verify(webhookClient).send(eq(WEBHOOK), payload.capture(), (byte[]) any());
+		assertEquals(new WebhookPayload.Field("Party", "Clanmate, Raidbuddy, Third", false),
+			payload.getValue().getEmbeds().get(0).getFields().get(4));
+	}
+
+	@Test
+	public void bossTaskOutsideAnInstanceNamesNobody()
+	{
+		tasks(task("any-kill", "KILL:*", null, 0, false));
+		when(worldView.isInstance()).thenReturn(false);
+		when(clan.findMember("Bystander")).thenReturn(mock(ClanMember.class));
+		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Bystander"));
+
+		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
+		ticks(3);
+
+		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
+		verify(webhookClient).send(eq(WEBHOOK), payload.capture(), (byte[]) any());
+		assertEquals(4, payload.getValue().getEmbeds().get(0).getFields().size());
+	}
+
+	@Test
 	public void clanOnlyTaskNeedsEveryoneInTheClanWhileSoloTaskDoesNot()
 	{
 		tasks(task("clan-raid", "RAID:*", null, 0, true), task("any-raid", "RAID:*", null, 0, false));

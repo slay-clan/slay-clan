@@ -970,9 +970,10 @@ public class SlayClanPlugin extends Plugin
 		}
 		List<TaskDefinition> soloTasks = tasks.stream().filter(task -> !task.isClanOnly()).collect(Collectors.toList());
 		List<TaskDefinition> clanOnlyTasks = tasks.stream().filter(TaskDefinition::isClanOnly).collect(Collectors.toList());
+		List<String> party = clanPartyToName(trigger, clan, remoteConfig, participants);
 		if (!soloTasks.isEmpty())
 		{
-			postTasks(remoteConfig, soloTasks);
+			postTasks(remoteConfig, soloTasks, party);
 		}
 		if (clanOnlyTasks.isEmpty())
 		{
@@ -980,12 +981,25 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (membershipChecker.allMembers(clan, remoteConfig.getClanName(), participants))
 		{
-			postTasks(remoteConfig, clanOnlyTasks);
+			postTasks(remoteConfig, clanOnlyTasks, party);
 		}
 		else
 		{
 			log.info("Not posted {}: outsider among {}", trigger, participants);
 		}
+	}
+
+	/**
+	 * The clan members in the team, for the post. Outside an instance the players around are bystanders, not a
+	 * team, so nobody is named there.
+	 */
+	private List<String> clanPartyToName(String trigger, ClanSettings clan, RemoteConfig remoteConfig, List<String> participants)
+	{
+		if (outsideInstance(trigger))
+		{
+			return List.of();
+		}
+		return membershipChecker.membersAmong(clan, remoteConfig.getClanName(), participants);
 	}
 
 	/**
@@ -1187,6 +1201,11 @@ public class SlayClanPlugin extends Plugin
 
 	private void postTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks)
 	{
+		postTasks(remoteConfig, tasks, List.of());
+	}
+
+	private void postTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks, List<String> party)
+	{
 		Instant completedAt = Instant.now();
 		String account = account();
 		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
@@ -1196,7 +1215,7 @@ public class SlayClanPlugin extends Plugin
 			{
 				progressStore.markCompleted(task.getId());
 			}
-			posts.add(withScreenshot -> messageFormatter.build(discordName(), account, task, completedAt, withScreenshot));
+			posts.add(withScreenshot -> messageFormatter.build(discordName(), account, task, party, completedAt, withScreenshot));
 		}
 		postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
 	}
