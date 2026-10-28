@@ -5,77 +5,70 @@ import com.slayclan.drop.ValuableDrop;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Builds posts with the same fields as the clan bot's own submissions: Task, Tier and Points for tasks, and Item,
- * Value in M and Points for drops. Every post ends with the account it was made on and a routing footer.
+ * Value in M and Points for drops.
  */
 public class MessageFormatter
 {
 	public static final String SCREENSHOT_FILENAME = "screenshot.png";
-	private static final int EMBED_COLOR = 0x8B0000;
-	private static final String TASK_DESCRIPTION = "Has completed the following clan task";
-	private static final String DROP_DESCRIPTION = "Has received a valuable drop";
-	private static final String SCREENSHOT_FAILED_NOTE = "\n\nScreenshot failed";
 
-	public WebhookPayload build(String discordName, String account, TaskDefinition task, Instant completedAt, boolean withScreenshot)
+	public PostPayload build(String account, TaskDefinition task, Instant completedAt)
 	{
-		return build(discordName, account, task, List.of(), completedAt, withScreenshot);
+		return build(account, task, List.of(), completedAt);
 	}
 
 	/**
 	 * A task done in a team names the clan members in it, so staff see who was there. A party of one is the
 	 * member themselves and adds nothing.
 	 */
-	public WebhookPayload build(String discordName, String account, TaskDefinition task, List<String> party, Instant completedAt,
-		boolean withScreenshot)
+	public PostPayload build(String account, TaskDefinition task, List<String> party, Instant completedAt)
 	{
-		List<WebhookPayload.Field> fields = withAccount(taskFields(task), account);
+		Map<String, String> fields = taskFields(task);
 		if (party.size() > 1)
 		{
-			fields.add(new WebhookPayload.Field("Party", String.join(", ", party), false));
+			fields.put("Party", String.join(", ", party));
 		}
-		return payload(discordName, TASK_DESCRIPTION, fields, PostKind.TASK, completedAt, withScreenshot);
+		return payload(PostKind.TASK, account, fields, completedAt);
 	}
 
-	public WebhookPayload buildItemTask(String discordName, String account, TaskDefinition task, String itemName, String source,
-		Instant completedAt, boolean withScreenshot)
+	public PostPayload buildItemTask(String account, TaskDefinition task, String itemName, String source, Instant completedAt)
 	{
-		List<WebhookPayload.Field> fields = taskFields(task);
-		fields.add(new WebhookPayload.Field("Item", itemName, true));
+		Map<String, String> fields = taskFields(task);
+		fields.put("Item", itemName);
 		if (source != null)
 		{
-			fields.add(new WebhookPayload.Field("Source", source, true));
+			fields.put("Source", source);
 		}
-		return payload(discordName, TASK_DESCRIPTION, withAccount(fields, account), PostKind.TASK, completedAt, withScreenshot);
+		return payload(PostKind.TASK, account, fields, completedAt);
 	}
 
-	public WebhookPayload buildDrop(String discordName, String account, ValuableDrop drop, String source, Instant completedAt,
-		boolean withScreenshot)
+	public PostPayload buildDrop(String account, ValuableDrop drop, String source, Instant completedAt)
 	{
 		String item = drop.getQuantity() > 1 ? drop.getItemName() + " x" + drop.getQuantity() : drop.getItemName();
-		List<WebhookPayload.Field> fields = new ArrayList<>();
-		fields.add(new WebhookPayload.Field("Item", item, true));
-		fields.add(new WebhookPayload.Field("Value in M", millions(drop.getValue()), true));
-		fields.add(new WebhookPayload.Field("Points", String.valueOf(drop.getPoints()), true));
-		fields.add(new WebhookPayload.Field("Source", source, false));
-		return payload(discordName, DROP_DESCRIPTION, withAccount(fields, account), PostKind.DROP, completedAt, withScreenshot);
+		Map<String, String> fields = new LinkedHashMap<>();
+		fields.put("Item", item);
+		fields.put("Value in M", millions(drop.getValue()));
+		fields.put("Points", String.valueOf(drop.getPoints()));
+		fields.put("Source", source);
+		return payload(PostKind.DROP, account, fields, completedAt);
 	}
 
-	private static List<WebhookPayload.Field> taskFields(TaskDefinition task)
+	public static PostPayload payload(PostKind kind, String account, Map<String, String> fields, Instant at)
 	{
-		List<WebhookPayload.Field> fields = new ArrayList<>();
-		fields.add(new WebhookPayload.Field("Task", task.getName(), true));
-		fields.add(new WebhookPayload.Field("Tier", task.getTier(), true));
-		fields.add(new WebhookPayload.Field("Points", String.valueOf(task.getPoints()), true));
-		return fields;
+		return new PostPayload(kind.getName(), Nonce.next(), account, null, at.toString(), fields, null);
 	}
 
-	private static List<WebhookPayload.Field> withAccount(List<WebhookPayload.Field> fields, String account)
+	private static Map<String, String> taskFields(TaskDefinition task)
 	{
-		fields.add(new WebhookPayload.Field("Account", account, true));
+		Map<String, String> fields = new LinkedHashMap<>();
+		fields.put("Task", task.getName());
+		fields.put("Tier", task.getTier());
+		fields.put("Points", String.valueOf(task.getPoints()));
 		return fields;
 	}
 
@@ -83,16 +76,5 @@ public class MessageFormatter
 	{
 		return BigDecimal.valueOf(value).divide(BigDecimal.valueOf(1_000_000), 0, RoundingMode.HALF_UP)
 			.stripTrailingZeros().toPlainString();
-	}
-
-	private static WebhookPayload payload(String title, String description, List<WebhookPayload.Field> fields, PostKind kind,
-		Instant completedAt, boolean withScreenshot)
-	{
-		WebhookPayload.EmbedImage image = withScreenshot
-			? new WebhookPayload.EmbedImage("attachment://" + SCREENSHOT_FILENAME)
-			: null;
-		String text = withScreenshot ? description : description + SCREENSHOT_FAILED_NOTE;
-		return new WebhookPayload(List.of(new WebhookPayload.Embed(title, text, EMBED_COLOR, completedAt.toString(), image, fields,
-			new WebhookPayload.Footer(kind.footer(Nonce.next())))));
 	}
 }

@@ -3,32 +3,41 @@ package com.slayclan.discord;
 import lombok.Getter;
 
 /**
- * Names a post in its footer so the bot can route it without reading the text: {@code slayclan:<kind>:<nonce>}.
+ * Names a post so the bot can route it without reading the fields.
  */
 public enum PostKind
 {
-	TASK("task"),
-	DROP("drop"),
-	CLOG("clog"),
-	CA("ca"),
-	STATUS("status"),
-	CLOG_SNAPSHOT("clog-snapshot"),
-	CA_SNAPSHOT("ca-snapshot"),
-	PB("pb"),
-	PB_SNAPSHOT("pb-snapshot");
-
-	private static final String PREFIX = "slayclan:";
+	TASK("task", false),
+	DROP("drop", false),
+	CLOG("clog", true),
+	CA("ca", true),
+	STATUS("status", true),
+	CLOG_SNAPSHOT("clog-snapshot", true),
+	CA_SNAPSHOT("ca-snapshot", true),
+	PB("pb", false),
+	PB_SNAPSHOT("pb-snapshot", true);
 
 	@Getter
 	private final String name;
+	// The activity feed is sent without the member doing anything, so its receipts stay out of the chat
+	@Getter
+	private final boolean feed;
 
-	PostKind(String name)
+	PostKind(String name, boolean feed)
 	{
 		this.name = name;
+		this.feed = feed;
 	}
 
-	public String footer(String nonce)
+	public static PostKind named(String name)
 	{
-		return PREFIX + name + ":" + nonce;
+		for (PostKind kind : values())
+		{
+			if (kind.name.equals(name))
+			{
+				return kind;
+			}
+		}
+		throw new IllegalArgumentException("Unknown post kind " + name);
 	}
 }

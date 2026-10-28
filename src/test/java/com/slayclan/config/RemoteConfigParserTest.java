@@ -7,7 +7,6 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
@@ -21,7 +20,7 @@ public class RemoteConfigParserTest
 		RemoteConfig config = parser.parse(TestConfigs.VALID_JSON).orElseThrow();
 
 		assertEquals("SlayClan", config.getClanName());
-		assertEquals("https://discord.com/api/webhooks/1/abc", config.getPointsWebhookUrl());
+		assertEquals(TestConfigs.API_URL, config.getApiUrl());
 		assertEquals(1, config.getTasks().size());
 		TaskDefinition task = config.getTasks().get(0);
 		assertEquals("cox", task.getId());
@@ -35,7 +34,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void readsTheContentTheClanHasSwitchedOff()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"ignoredContent\":[\"Fractured Archive\",\"Yama*\"],"
 			+ "\"tasks\":[{\"id\":\"cox\",\"name\":\"Clan Raid\",\"trigger\":\"RAID:Chambers of Xeric\",\"tier\":\"Repeatable\",\"points\":10}]}";
 
@@ -68,7 +67,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void defaultsMinPlayersToOneWhenMissing()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":[{\"id\":\"cox\",\"name\":\"Clan Raid\",\"trigger\":\"RAID:Chambers of Xeric\",\"tier\":\"Repeatable\",\"points\":10}]}";
 
 		RemoteConfig config = parser.parse(json).orElseThrow();
@@ -80,7 +79,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void parsesDropValueFields()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":[{\"id\":\"drops\",\"name\":\"Valuable drop\",\"trigger\":\"DROP\",\"tier\":\"Repeatable\","
 			+ "\"minValue\":10000,\"valuePerPoint\":10000,\"includeStackable\":true}]}";
 
@@ -94,7 +93,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void parsesCollectionLogTaskFields()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":[{\"id\":\"dust\",\"name\":\"Dust to Dust\",\"trigger\":\"CLOG\",\"tier\":\"PvM\",\"points\":200,"
 			+ "\"once\":true,\"items\":[\"Sanguine dust\",\"Metamorphic dust\"],\"required\":2}]}";
 
@@ -120,7 +119,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void readsTasksGroupedByTier()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":{"
 			+ "\"Social\":[{\"id\":\"trial-by-fire\",\"trigger\":\"CLOG\"}],"
 			+ "\"Valuable drops\":[{\"id\":\"drops\",\"trigger\":\"DROP\",\"tier\":\"Repeatable\"}]"
@@ -136,7 +135,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsGroupThatIsNotAList()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":{\"Social\":{\"id\":\"trial-by-fire\"}}}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -147,7 +146,7 @@ public class RemoteConfigParserTest
 	{
 		String json = "{\n"
 			+ "  \"clanName\": \"SlayClan\",\n"
-			+ "  \"pointsWebhookUrl\": \"https://discord.com/api/webhooks/1/abc\",\n"
+			+ "  \"apiUrl\": \"https://bot.example/api/v1/posts\",\n"
 			+ "  \"tasks\": [\n"
 			+ "    // Social\n"
 			+ "    { \"id\": \"trial-by-fire\", \"trigger\": \"CLOG\" },\n"
@@ -160,14 +159,6 @@ public class RemoteConfigParserTest
 
 		assertEquals(2, config.getTasks().size());
 		assertEquals("drops", config.getTasks().get(1).getId());
-	}
-
-	@Test
-	public void acceptsLegacyDiscordappDomain()
-	{
-		String json = TestConfigs.VALID_JSON.replace("https://discord.com/", "https://discordapp.com/");
-
-		assertEquals("SlayClan", parser.parse(json).orElseThrow().getClanName());
 	}
 
 	@Test
@@ -191,38 +182,25 @@ public class RemoteConfigParserTest
 	}
 
 	@Test
-	public void rejectsWebhookOutsideDiscord()
+	public void rejectsAPlainHttpApiOnAnotherComputer()
 	{
-		String json = TestConfigs.VALID_JSON.replace("https://discord.com/api/webhooks/1/abc", "https://evil.example/hook");
+		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://bot.example/api/v1/posts");
 
 		assertFalse(parser.parse(json).isPresent());
 	}
 
 	@Test
-	public void readsOptionalActivityAndPbWebhooks()
+	public void acceptsAPlainHttpApiOnThisComputerForTesting()
 	{
-		String json = TestConfigs.VALID_JSON.replace("\"tasks\"",
-			"\"activityWebhookUrl\":\"https://discord.com/api/webhooks/2/def\",\"pbWebhookUrl\":\"https://discord.com/api/webhooks/3/ghi\",\"tasks\"");
+		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://127.0.0.1:3000/api/v1/posts");
 
-		RemoteConfig config = parser.parse(json).orElseThrow();
-
-		assertEquals("https://discord.com/api/webhooks/2/def", config.getActivityWebhookUrl());
-		assertEquals("https://discord.com/api/webhooks/3/ghi", config.getPbWebhookUrl());
+		assertEquals("http://127.0.0.1:3000/api/v1/posts", parser.parse(json).orElseThrow().getApiUrl());
 	}
 
 	@Test
-	public void leavesActivityAndPbWebhooksNullWhenAbsent()
+	public void rejectsAConfigWithoutAnApi()
 	{
-		RemoteConfig config = parser.parse(TestConfigs.VALID_JSON).orElseThrow();
-
-		assertNull(config.getActivityWebhookUrl());
-		assertNull(config.getPbWebhookUrl());
-	}
-
-	@Test
-	public void rejectsActivityWebhookOutsideDiscord()
-	{
-		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"activityWebhookUrl\":\"https://evil.example/hook\",\"tasks\"");
+		String json = TestConfigs.VALID_JSON.replace("\"apiUrl\":\"" + TestConfigs.API_URL + "\",", "");
 
 		assertFalse(parser.parse(json).isPresent());
 	}
@@ -230,7 +208,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsTaskWithoutId()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":[{\"name\":\"Clan Raid\",\"trigger\":\"RAID:*\"}]}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -239,7 +217,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsTaskIdWithColon()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":[{\"id\":\"ca:safe\",\"trigger\":\"CA:Just To Be Safe\"}]}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -248,7 +226,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsDuplicateTaskIds()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\","
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
 			+ "\"tasks\":{\"Social\":[{\"id\":\"cox\",\"trigger\":\"RAID:*\"}],\"PvM\":[{\"id\":\"cox\",\"trigger\":\"KILL:Yama\"}]}}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -257,7 +235,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsMissingTasks()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"pointsWebhookUrl\":\"https://discord.com/api/webhooks/1/abc\"}";
+		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\"}";
 
 		Optional<RemoteConfig> result = parser.parse(json);
 

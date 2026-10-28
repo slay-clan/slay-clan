@@ -15,12 +15,14 @@ import com.slayclan.clan.ClanMembershipChecker;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
 import com.slayclan.config.TaskDefinition;
-import com.slayclan.discord.DiscordWebhookClient;
+import com.slayclan.discord.BotClient;
+import com.slayclan.discord.BotReply;
+import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
+import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
-import com.slayclan.discord.WebhookPayload;
 import com.slayclan.drop.DropEvaluator;
 import com.slayclan.drop.PricedItem;
 import com.slayclan.drop.ValuableDrop;
@@ -66,7 +68,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import lombok.Value;
@@ -92,6 +93,7 @@ import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.account.SessionManager;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -111,7 +113,7 @@ import net.runelite.client.util.Text;
 @PluginDescriptor(
 	name = "Slay Clan",
 	description = "Posts completed Slay Clan tasks to the clan Discord",
-	tags = {"clan", "discord", "raids", "cox", "webhook"}
+	tags = {"clan", "discord", "raids", "cox"}
 )
 public class SlayClanPlugin extends Plugin
 {
@@ -156,7 +158,10 @@ public class SlayClanPlugin extends Plugin
 	private ScreenshotService screenshotService;
 
 	@Inject
-	private DiscordWebhookClient webhookClient;
+	private BotClient botClient;
+
+	@Inject
+	private ClientThread clientThread;
 
 	@Inject
 	private ItemManager itemManager;
@@ -238,7 +243,7 @@ public class SlayClanPlugin extends Plugin
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
-		activityReporter = new ActivityReporter(activityFormatter, webhookClient, pendingPostStore, deliveredSnapshots);
+		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this::sayInChat);
 		refreshTask = executor.scheduleAtFixedRate(
 			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), 0, CONFIG_REFRESH_MINUTES, TimeUnit.MINUTES);
 		if (client.getGameState() == GameState.LOGGED_IN)
@@ -264,7 +269,7 @@ public class SlayClanPlugin extends Plugin
 			configChangeRefresh.cancel(false);
 			configChangeRefresh = null;
 		}
-		webhookClient.cancelRetries();
+		botClient.cancelRetries();
 		remoteConfigService.refresh(null);
 		pendingCompletions.clear();
 		recentTimes.clear();
@@ -573,8 +578,8 @@ public class SlayClanPlugin extends Plugin
 			return;
 		}
 		reportStoredPersonalBests();
-		String activityWebhook = activityWebhook();
-		if (activityWebhook == null)
+		BotTarget target = target();
+		if (target == null)
 		{
 			return;
 		}
@@ -583,13 +588,13 @@ public class SlayClanPlugin extends Plugin
 			combatAchievementReader.readCompleted().ifPresent(completed ->
 			{
 				caSnapshotPending = false;
-				activityReporter.reportCaSnapshot(activityWebhook, discordName(), account(), client.getAccountHash(), completed);
+				activityReporter.reportCaSnapshot(target, account(), client.getAccountHash(), completed);
 			});
 		}
 		if (statusCheckPending)
 		{
 			statusCheckPending = false;
-			activityReporter.reportStatusIfChanged(activityWebhook, discordName(), account(), client.getAccountHash(),
+			activityReporter.reportStatusIfChanged(target, account(), client.getAccountHash(),
 				combatAchievementReader.readStatus(), collectionLogReader.read());
 		}
 	}
@@ -610,10 +615,10 @@ public class SlayClanPlugin extends Plugin
 			collectionLogCapture.allowAgain();
 			return;
 		}
-		String activityWebhook = activityWebhook();
-		if (activityWebhook != null)
+		BotTarget target = target();
+		if (target != null)
 		{
-			activityReporter.reportClogSnapshot(activityWebhook, discordName(), account(), client.getAccountHash(), items);
+			activityReporter.reportClogSnapshot(target, account(), client.getAccountHash(), items);
 		}
 		checkClogTasksOnWholeLog(items);
 	}
@@ -669,79 +674,76 @@ public class SlayClanPlugin extends Plugin
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
-		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
+		List<PostPayload> posts = new ArrayList<>();
 		for (TaskDefinition task : tasks)
 		{
 			progressStore.markCompleted(task.getId());
 			String item = singleItems.get(task.getId());
 			if (item == null)
 			{
-				posts.add(withScreenshot -> messageFormatter.build(discordName(), account, task, List.of(), completedAt, withScreenshot));
+				posts.add(messageFormatter.build(account, task, List.of(), completedAt));
 			}
 			else
 			{
-				posts.add(withScreenshot -> messageFormatter.buildItemTask(discordName(), account, task, item, null, completedAt, withScreenshot));
+				posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 			}
 		}
-		postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
+		postWithScreenshot(target(remoteConfig), posts);
 	}
 
 	private void reportStoredPersonalBests()
 	{
-		RemoteConfig remoteConfig = remoteConfigService.current();
-		if (!pbSnapshotDue(remoteConfig))
+		BotTarget target = target();
+		if (target == null || !pbSnapshotDue())
 		{
 			return;
 		}
 		pbSnapshotPending = false;
-		activityReporter.reportPbSnapshot(remoteConfig.getPbWebhookUrl(), discordName(), account(), client.getAccountHash(),
-			personalBestReader.read());
+		activityReporter.reportPbSnapshot(target, account(), client.getAccountHash(), personalBestReader.read());
 	}
 
 	// RuneLite's stored personal bests live in the game profile, which is only known once RuneLite has resolved it
-	private boolean pbSnapshotDue(RemoteConfig remoteConfig)
+	private boolean pbSnapshotDue()
 	{
-		return pbSnapshotPending && !personalBestsOff(remoteConfig) && configManager.getRSProfileKey() != null;
+		return pbSnapshotPending && configManager.getRSProfileKey() != null;
 	}
 
 	/**
-	 * Null when the activity feed is off: no webhook in the clan config, or posting not allowed.
+	 * Null when nothing may be posted: no clan config, or posting not allowed.
 	 */
-	private String activityWebhook()
+	private BotTarget target()
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
-		if (activityFeedOff(remoteConfig))
+		if (remoteConfig == null || !canPost())
 		{
 			return null;
 		}
-		return remoteConfig.getActivityWebhookUrl();
+		return target(remoteConfig);
 	}
 
-	private boolean activityFeedOff(RemoteConfig remoteConfig)
+	private BotTarget target(RemoteConfig remoteConfig)
 	{
-		return remoteConfig == null || remoteConfig.getActivityWebhookUrl() == null || !canPost();
+		return new BotTarget(remoteConfig.getApiUrl(), clanToken());
 	}
 
 	private void reportCollectionLogItem(String item)
 	{
-		String activityWebhook = activityWebhook();
-		if (activityWebhook == null)
+		BotTarget target = target();
+		if (target == null)
 		{
 			return;
 		}
-		activityReporter.reportClog(activityWebhook, discordName(), account(), item, itemId(item), 1,
-			client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
+		activityReporter.reportClog(target, account(), item, itemId(item), 1, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 	}
 
 	private void reportCombatAchievement(CombatAchievement achievement)
 	{
-		String activityWebhook = activityWebhook();
-		if (activityWebhook == null)
+		BotTarget target = target();
+		if (target == null)
 		{
 			return;
 		}
-		activityReporter.reportCa(activityWebhook, discordName(), account(), achievement.getName(), achievement.getId(),
-			achievement.getTier());
+		activityReporter.reportCa(target, account(), achievement.getName(), achievement.getId(), achievement.getTier());
 	}
 
 	private int itemId(String name)
@@ -789,34 +791,34 @@ public class SlayClanPlugin extends Plugin
 			return;
 		}
 		int teamSize = teamSize(party);
-		String webhookUrl = remoteConfig.getPbWebhookUrl();
+		BotTarget target = target(remoteConfig);
 		if (trigger.startsWith(Triggers.RAID_PREFIX))
 		{
-			reportRaidBests(webhookUrl, boss, bests, teamSize, party);
+			reportRaidBests(target, boss, bests, teamSize, party);
 		}
 		else
 		{
-			reportBossBests(webhookUrl, boss, bests, teamSize, party);
+			reportBossBests(target, boss, bests, teamSize, party);
 		}
 	}
 
-	private void reportRaidBests(String webhookUrl, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
+	private void reportRaidBests(BotTarget target, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
 	{
 		boolean firstReportThisLogin = bossesReportedThisLogin.add(boss);
 		for (PersonalBest best : bests)
 		{
 			if (best.isNewRecord())
 			{
-				postBest(webhookUrl, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.NEW_RECORD);
+				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.NEW_RECORD);
 			}
 			else if (firstReportThisLogin)
 			{
-				postBest(webhookUrl, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.CURRENT);
+				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.CURRENT);
 			}
 		}
 	}
 
-	private void reportBossBests(String webhookUrl, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
+	private void reportBossBests(BotTarget target, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
 	{
 		long accountHash = client.getAccountHash();
 		for (PersonalBest best : bests)
@@ -825,14 +827,14 @@ public class SlayClanPlugin extends Plugin
 			if (worthPostingAtScale(accountHash, boss, best, teamSize))
 			{
 				scaleBestStore.saveBest(accountHash, boss, best.getKind(), teamSize, run);
-				postBest(webhookUrl, boss, TimeFormat.of(run), best.getKind(), teamSize, party,
+				postBest(target, boss, TimeFormat.of(run), best.getKind(), teamSize, party,
 					best.isNewRecord() ? PersonalBestClaim.NEW_RECORD : PersonalBestClaim.FASTEST_AT_SCALE);
 			}
 			if (gameBestStillUnreported(accountHash, boss, best))
 			{
 				scaleBestStore.markGameBestReported(accountHash, boss);
-				activityReporter.reportPersonalBest(webhookUrl,
-					activityFormatter.currentBossBest(discordName(), account(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now()), null);
+				activityReporter.reportPersonalBest(target,
+					activityFormatter.currentBossBest(account(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now()), null);
 			}
 		}
 	}
@@ -847,20 +849,16 @@ public class SlayClanPlugin extends Plugin
 		return !best.isNewRecord() && !scaleBestStore.isGameBestReported(accountHash, boss);
 	}
 
-	private void postBest(String webhookUrl, String boss, String time, TimedLine.Kind kind, int teamSize, List<String> party,
+	private void postBest(BotTarget target, String boss, String time, TimedLine.Kind kind, int teamSize, List<String> party,
 		PersonalBestClaim claim)
 	{
-		String discordName = discordName();
-		String account = account();
-		Instant at = Instant.now();
+		PostPayload payload = activityFormatter.personalBest(account(), boss, time, kind, teamSize, party, claim, Instant.now());
 		if (claim == PersonalBestClaim.CURRENT)
 		{
-			activityReporter.reportPersonalBest(webhookUrl,
-				activityFormatter.personalBest(discordName, account, boss, time, kind, teamSize, party, claim, false, at), null);
+			activityReporter.reportPersonalBest(target, payload, null);
 			return;
 		}
-		screenshotService.capture(png -> activityReporter.reportPersonalBest(webhookUrl,
-			activityFormatter.personalBest(discordName, account, boss, time, kind, teamSize, party, claim, png != null, at), png));
+		screenshotService.capture(png -> activityReporter.reportPersonalBest(target, payload, png));
 	}
 
 	/**
@@ -891,7 +889,7 @@ public class SlayClanPlugin extends Plugin
 
 	private boolean personalBestsOff(RemoteConfig remoteConfig)
 	{
-		return remoteConfig == null || remoteConfig.getPbWebhookUrl() == null || !canPost();
+		return remoteConfig == null || !canPost();
 	}
 
 	// Chambers of Xeric and the Nightmare print their team size, which beats counting players in the scene
@@ -1213,16 +1211,16 @@ public class SlayClanPlugin extends Plugin
 		}
 		Instant completedAt = Instant.now();
 		String account = account();
-		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
+		List<PostPayload> posts = new ArrayList<>();
 		for (TaskDefinition task : completed)
 		{
 			if (task.isOnce())
 			{
 				progressStore.markCompleted(task.getId());
 			}
-			posts.add(withScreenshot -> messageFormatter.buildItemTask(discordName(), account, task, item, null, completedAt, withScreenshot));
+			posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 		}
-		postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
+		postWithScreenshot(target(remoteConfig), posts);
 	}
 
 	private void postTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks)
@@ -1234,16 +1232,16 @@ public class SlayClanPlugin extends Plugin
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
-		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
+		List<PostPayload> posts = new ArrayList<>();
 		for (TaskDefinition task : tasks)
 		{
 			if (task.isOnce())
 			{
 				progressStore.markCompleted(task.getId());
 			}
-			posts.add(withScreenshot -> messageFormatter.build(discordName(), account, task, party, completedAt, withScreenshot));
+			posts.add(messageFormatter.build(account, task, party, completedAt));
 		}
-		postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
+		postWithScreenshot(target(remoteConfig), posts);
 	}
 
 	private boolean notYetPosted(TaskDefinition task)
@@ -1290,12 +1288,12 @@ public class SlayClanPlugin extends Plugin
 		List<PricedItem> pricedItems = items.stream().map(this::price).collect(Collectors.toList());
 		Instant completedAt = Instant.now();
 		String account = account();
-		List<Function<Boolean, WebhookPayload>> posts = new ArrayList<>();
+		List<PostPayload> posts = new ArrayList<>();
 		for (TaskDefinition task : dropTasks)
 		{
 			for (ValuableDrop drop : dropEvaluator.evaluate(pricedItems, task))
 			{
-				posts.add(withScreenshot -> messageFormatter.buildDrop(discordName(), account, drop, source, completedAt, withScreenshot));
+				posts.add(messageFormatter.buildDrop(account, drop, source, completedAt));
 			}
 		}
 		for (TaskDefinition task : lootTasks)
@@ -1306,7 +1304,7 @@ public class SlayClanPlugin extends Plugin
 				{
 					continue;
 				}
-				posts.add(withScreenshot -> messageFormatter.buildItemTask(discordName(), account, task, item.getName(), source, completedAt, withScreenshot));
+				posts.add(messageFormatter.buildItemTask(account, task, item.getName(), source, completedAt));
 				if (task.isOnce())
 				{
 					progressStore.markCompleted(task.getId());
@@ -1316,7 +1314,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!posts.isEmpty())
 		{
-			postWithScreenshot(remoteConfig.getPointsWebhookUrl(), posts);
+			postWithScreenshot(target(remoteConfig), posts);
 		}
 	}
 
@@ -1331,20 +1329,23 @@ public class SlayClanPlugin extends Plugin
 			dropped.isStackable());
 	}
 
-	private void postWithScreenshot(String webhookUrl, List<Function<Boolean, WebhookPayload>> posts)
+	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
 	{
-		screenshotService.capture(png -> posts.forEach(post ->
+		screenshotService.capture(png -> posts.forEach(payload ->
+			botClient.send(target, payload, png).thenAccept(reply -> settle(reply, payload))));
+	}
+
+	private void settle(BotReply reply, PostPayload payload)
+	{
+		if (reply.getMessage() != null)
 		{
-			WebhookPayload payload = post.apply(png != null);
-			webhookClient.send(webhookUrl, payload, png).thenAccept(sent ->
-			{
-				if (!sent)
-				{
-					log.info("Keeping undelivered post for retry: {}", payload.getEmbeds().get(0).getTitle());
-					pendingPostStore.add(payload, Instant.now());
-				}
-			});
-		}));
+			sayInChat(reply.getMessage());
+		}
+		if (!reply.isDelivered())
+		{
+			log.info("Keeping an undelivered {} post for retry", payload.getKind());
+			pendingPostStore.add(payload, Instant.now());
+		}
 	}
 
 	/**
@@ -1360,19 +1361,17 @@ public class SlayClanPlugin extends Plugin
 		}
 		try
 		{
+			BotTarget target = target(remoteConfig);
 			List<CompletableFuture<Void>> deliveries = new ArrayList<>();
 			for (PendingPost pending : pendingPostStore.load(Instant.now()))
 			{
-				String webhookUrl = webhookFor(pending, remoteConfig);
-				if (webhookUrl == null)
+				deliveries.add(botClient.send(target, pending.getPayload(), null).thenAccept(reply ->
 				{
-					log.info("Dropping a pending {} post, the clan has turned that feed off", pending.getKind());
-					pendingPostStore.remove(pending);
-					continue;
-				}
-				deliveries.add(webhookClient.send(webhookUrl, pending.getPayload(), (byte[]) null).thenAccept(sent ->
-				{
-					if (sent)
+					if (reply.getMessage() != null)
+					{
+						sayInChat(reply.getMessage());
+					}
+					if (reply.isDelivered())
 					{
 						pendingPostStore.remove(pending);
 					}
@@ -1388,11 +1387,6 @@ public class SlayClanPlugin extends Plugin
 		}
 	}
 
-	private static String webhookFor(PendingPost pending, RemoteConfig remoteConfig)
-	{
-		return pending.getKind() == null ? remoteConfig.getPointsWebhookUrl() : remoteConfig.webhookFor(pending.getKind());
-	}
-
 	private boolean canPostForClan()
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
@@ -1401,25 +1395,25 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	/**
-	 * Posts need a Discord name so the bot can award points, and a RuneLite account so that one-time tasks are
-	 * remembered across computers and shared with alts.
+	 * Posts need the member's clan token so the bot knows whose they are, and a RuneLite account so that one-time
+	 * tasks are remembered across computers and shared with alts.
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && !discordName().isEmpty() && sessionManager.getAccountSession() != null;
+		boolean canPost = config.enabled() && !clanToken().isEmpty() && sessionManager.getAccountSession() != null;
 		if (!canPost && !postingBlockedLogged)
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, discord name set={}, RuneLite account={}",
-				config.enabled(), !discordName().isEmpty(), sessionManager.getAccountSession() != null);
+			log.info("Posting blocked: enabled={}, clan token set={}, RuneLite account={}",
+				config.enabled(), !clanToken().isEmpty(), sessionManager.getAccountSession() != null);
 		}
 		return canPost;
 	}
 
-	private String discordName()
+	private String clanToken()
 	{
-		String name = config.discordName();
-		return name == null ? "" : name.trim();
+		String token = config.clanToken();
+		return token == null ? "" : token.trim();
 	}
 
 	private String account()
@@ -1435,9 +1429,9 @@ public class SlayClanPlugin extends Plugin
 		{
 			return;
 		}
-		if (discordName().isEmpty())
+		if (clanToken().isEmpty())
 		{
-			warnInChat("Slay Clan: set your Discord name in the plugin settings, otherwise nothing is posted.");
+			warnInChat("Slay Clan: paste your clan token into the plugin settings, otherwise nothing is posted. Run /plugin token in the clan Discord to get one.");
 		}
 		if (sessionManager.getAccountSession() == null)
 		{
@@ -1446,7 +1440,7 @@ public class SlayClanPlugin extends Plugin
 		int dropped = pendingPostStore.takeDroppedCount();
 		if (dropped > 0)
 		{
-			warnInChat("Slay Clan: " + dropped + " post(s) could not be delivered to Discord and were dropped. Submit those tasks manually.");
+			warnInChat("Slay Clan: " + dropped + " post(s) could not be delivered to the clan bot and were dropped. Submit those tasks manually.");
 		}
 		if (config.configUrl() == null || config.configUrl().trim().isEmpty())
 		{
@@ -1475,6 +1469,12 @@ public class SlayClanPlugin extends Plugin
 	private void warnInChat(String message)
 	{
 		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", ColorUtil.wrapWithColorTag(message, Color.RED), null);
+	}
+
+	// The bot answers on an HTTP thread, and the chat is only written from the client thread
+	private void sayInChat(String message)
+	{
+		clientThread.invoke(() -> warnInChat("Slay Clan: " + message));
 	}
 
 	@Provides

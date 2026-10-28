@@ -20,9 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RemoteConfigParser
 {
-	private static final List<String> ALLOWED_WEBHOOK_PREFIXES = List.of(
-		"https://discord.com/api/webhooks/",
-		"https://discordapp.com/api/webhooks/"
+	// Posts carry the member's token, so they only go over TLS, except to a bot running on the same computer
+	private static final List<String> ALLOWED_API_PREFIXES = List.of(
+		"https://",
+		"http://localhost:",
+		"http://localhost/",
+		"http://127.0.0.1:",
+		"http://127.0.0.1/"
 	);
 
 	private final Gson gson;
@@ -44,7 +48,7 @@ public class RemoteConfigParser
 			return Optional.empty();
 		}
 
-		if (config == null || !hasRequiredFields(config) || !hasOnlyDiscordWebhooks(config) || !hasUniqueIds(config.getTasks()))
+		if (config == null || !hasRequiredFields(config) || !hasAllowedApiUrl(config) || !hasUniqueIds(config.getTasks()))
 		{
 			return Optional.empty();
 		}
@@ -56,11 +60,15 @@ public class RemoteConfigParser
 		return !isBlank(config.getClanName()) && config.getTasks() != null;
 	}
 
-	private static boolean hasOnlyDiscordWebhooks(RemoteConfig config)
+	private static boolean hasAllowedApiUrl(RemoteConfig config)
 	{
-		return isDiscordWebhook(config.getPointsWebhookUrl())
-			&& isAbsentOrDiscordWebhook(config.getActivityWebhookUrl())
-			&& isAbsentOrDiscordWebhook(config.getPbWebhookUrl());
+		String url = config.getApiUrl();
+		if (url != null && ALLOWED_API_PREFIXES.stream().anyMatch(url::startsWith))
+		{
+			return true;
+		}
+		log.info("Clan config rejected: apiUrl must be https, or http on this computer");
+		return false;
 	}
 
 	/**
@@ -99,9 +107,7 @@ public class RemoteConfigParser
 		}
 		RemoteConfig config = new RemoteConfig();
 		config.setClanName(string(root, "clanName"));
-		config.setPointsWebhookUrl(string(root, "pointsWebhookUrl"));
-		config.setActivityWebhookUrl(string(root, "activityWebhookUrl"));
-		config.setPbWebhookUrl(string(root, "pbWebhookUrl"));
+		config.setApiUrl(string(root, "apiUrl"));
 		config.setTasks(tasks(root.get("tasks")));
 		config.setIgnoredContent(strings(root.get("ignoredContent")));
 		return config;
@@ -153,16 +159,6 @@ public class RemoteConfigParser
 	{
 		JsonElement value = root.get(key);
 		return value == null || value.isJsonNull() ? null : value.getAsString();
-	}
-
-	private static boolean isDiscordWebhook(String url)
-	{
-		return url != null && ALLOWED_WEBHOOK_PREFIXES.stream().anyMatch(url::startsWith);
-	}
-
-	private static boolean isAbsentOrDiscordWebhook(String url)
-	{
-		return url == null || isDiscordWebhook(url);
 	}
 
 	private static boolean isBlank(String value)

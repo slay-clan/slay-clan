@@ -55,15 +55,10 @@ public class PendingPostStore
 		return fresh;
 	}
 
-	public synchronized void add(WebhookPayload payload, Instant createdAt)
-	{
-		add(null, payload, createdAt);
-	}
-
-	public synchronized void add(PostKind kind, WebhookPayload payload, Instant createdAt)
+	public synchronized void add(PostPayload payload, Instant createdAt)
 	{
 		List<PendingPost> posts = new ArrayList<>(load(createdAt));
-		posts.add(new PendingPost(createdAt.toString(), payload, kind));
+		posts.add(new PendingPost(createdAt.toString(), payload));
 		if (posts.size() > MAX_POSTS)
 		{
 			countDropped(posts.size() - MAX_POSTS);

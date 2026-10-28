@@ -1,8 +1,6 @@
 {
   "clanName": "Slay Clan",
-  "pointsWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
-  "activityWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
-  "pbWebhookUrl": "https://discord.com/api/webhooks/<id>/<token>",
+  "apiUrl": "https://discordbot.slayclan.net/api/v1/posts",
   "ignoredContent": [],
   "tasks": {
     "Social": [

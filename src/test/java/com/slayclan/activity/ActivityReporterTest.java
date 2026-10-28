@@ -1,11 +1,13 @@
 package com.slayclan.activity;
 
 import com.google.gson.Gson;
-import com.slayclan.discord.Attachment;
-import com.slayclan.discord.DiscordWebhookClient;
+import com.slayclan.discord.BotClient;
+import com.slayclan.discord.BotReply;
+import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
-import com.slayclan.discord.WebhookPayload;
+import com.slayclan.discord.PostPayload;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import static org.junit.Assert.assertEquals;
@@ -25,68 +27,85 @@ import static org.mockito.Mockito.when;
 
 public class ActivityReporterTest
 {
-	private static final String URL = "https://discord.com/api/webhooks/2/def";
+	private static final BotTarget TARGET = new BotTarget("https://bot.example/api/v1/posts", "sc_test");
 	private static final long ACCOUNT = 42L;
 
-	private DiscordWebhookClient webhookClient;
+	private BotClient botClient;
 	private PendingPostStore pendingPostStore;
 	private DeliveredSnapshots deliveredSnapshots;
+	private final List<String> chat = new ArrayList<>();
 	private ActivityReporter reporter;
 
 	@Before
 	public void setUp()
 	{
-		webhookClient = mock(DiscordWebhookClient.class);
+		botClient = mock(BotClient.class);
 		pendingPostStore = mock(PendingPostStore.class);
 		deliveredSnapshots = mock(DeliveredSnapshots.class);
-		when(webhookClient.send(any(), any(), (Attachment) any())).thenReturn(CompletableFuture.completedFuture(true));
-		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), webhookClient, pendingPostStore, deliveredSnapshots);
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
+		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, chat::add);
 	}
 
 	@Test
-	public void sendsAClogEventWithoutAttachment()
+	public void sendsAClogEventWithoutScreenshot()
 	{
-		reporter.reportClog(URL, "Clanmate", "Clanmate", "Vorki", 21992, 1, 141);
+		reporter.reportClog(TARGET, "Clanmate", "Vorki", 21992, 1, 141);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(URL), payload.capture(), (Attachment) isNull());
-		assertEquals("Vorki", payload.getValue().getEmbeds().get(0).getFields().get(1).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), isNull());
+		assertEquals("Vorki", payload.getValue().getFields().get("Item"));
 	}
 
 	@Test
-	public void queuesAnEventUnderItsKindWhenDeliveryFails()
+	public void keepsAnEventTheBotCouldNotTake()
 	{
-		when(webhookClient.send(any(), any(), (Attachment) any())).thenReturn(CompletableFuture.completedFuture(false));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
-		reporter.reportCa(URL, "Clanmate", "Clanmate", "Into the Den of Giants", 398, "Easy");
+		reporter.reportCa(TARGET, "Clanmate", "Into the Den of Giants", 398, "Easy");
 
-		verify(pendingPostStore).add(eq(PostKind.CA), any(), any());
+		ArgumentCaptor<PostPayload> kept = ArgumentCaptor.forClass(PostPayload.class);
+		verify(pendingPostStore).add(kept.capture(), any());
+		assertEquals("ca", kept.getValue().getKind());
 	}
 
 	@Test
-	public void queuesAPersonalBestUnderItsKindWhenDeliveryFails()
+	public void keepsAPersonalBestTheBotCouldNotTake()
 	{
-		when(webhookClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(false));
-		WebhookPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Clanmate", "Yama", "3:09",
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
+		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
 			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
 
-		reporter.reportPersonalBest(URL, payload, null);
+		reporter.reportPersonalBest(TARGET, payload, null);
 
-		verify(pendingPostStore).add(eq(PostKind.PB), eq(payload), any());
+		verify(pendingPostStore).add(eq(payload), any());
 	}
 
 	@Test
-	public void remembersTheNewestStatusWhenDiscordAnswersAnOlderOneLast()
+	public void saysInChatWhatTheBotAnsweredAboutAPersonalBest()
 	{
-		CompletableFuture<Boolean> first = new CompletableFuture<>();
-		CompletableFuture<Boolean> second = new CompletableFuture<>();
-		when(webhookClient.send(any(), any(), (Attachment) any())).thenReturn(first, second);
+		when(botClient.send(any(), any(), any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.delivered("Not recorded: slower than your time on the board.")));
+		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
+			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
+
+		reporter.reportPersonalBest(TARGET, payload, null);
+
+		assertEquals(List.of("Not recorded: slower than your time on the board."), chat);
+		verify(pendingPostStore, never()).add(any(), any());
+	}
+
+	@Test
+	public void remembersTheNewestStatusWhenTheBotAnswersAnOlderOneLast()
+	{
+		CompletableFuture<BotReply> first = new CompletableFuture<>();
+		CompletableFuture<BotReply> second = new CompletableFuture<>();
+		when(botClient.send(any(), any(), any())).thenReturn(first, second);
 		CollectionLogStatus clog = new CollectionLogStatus(10, 100, new int[5], new int[5]);
 
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[6], new int[6]), clog);
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[]{1, 0, 0, 0, 0, 0}, new int[6]), clog);
-		second.complete(true);
-		first.complete(true);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[6], new int[6]), clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[]{1, 0, 0, 0, 0, 0}, new int[6]), clog);
+		second.complete(BotReply.delivered(null));
+		first.complete(BotReply.delivered(null));
 
 		ArgumentCaptor<String> remembered = ArgumentCaptor.forClass(String.class);
 		verify(deliveredSnapshots, times(1)).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), remembered.capture());
@@ -97,15 +116,15 @@ public class ActivityReporterTest
 	@Test
 	public void sendsAStatusAgainAfterTheFirstAttemptFailed()
 	{
-		when(webhookClient.send(any(), any(), (Attachment) any()))
-			.thenReturn(CompletableFuture.completedFuture(false), CompletableFuture.completedFuture(true));
+		when(botClient.send(any(), any(), any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.delivered(null)));
 		CombatAchievementStatus ca = new CombatAchievementStatus(new int[6], new int[6]);
 		CollectionLogStatus clog = new CollectionLogStatus(10, 100, new int[5], new int[5]);
 
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, ca, clog);
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, ca, clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, ca, clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, ca, clog);
 
-		verify(webhookClient, times(2)).send(eq(URL), any(), (Attachment) isNull());
+		verify(botClient, times(2)).send(eq(TARGET), any(), isNull());
 		verify(deliveredSnapshots, times(1)).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), anyString());
 	}
 
@@ -115,66 +134,67 @@ public class ActivityReporterTest
 		CombatAchievementStatus ca = new CombatAchievementStatus(new int[]{1, 0, 0, 0, 0, 0}, new int[6]);
 		CollectionLogStatus clog = new CollectionLogStatus(10, 100, new int[5], new int[5]);
 
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, ca, clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, ca, clog);
 
-		verify(webhookClient).send(eq(URL), any(), (Attachment) isNull());
+		verify(botClient).send(eq(TARGET), any(), isNull());
 		verify(deliveredSnapshots).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), anyString());
-		verify(pendingPostStore, never()).add(any(), any(), any());
+		verify(pendingPostStore, never()).add(any(), any());
 	}
 
 	@Test
-	public void sendsStatusOnceWhenCheckedAgainBeforeDiscordAnswers()
+	public void sendsStatusOnceWhenCheckedAgainBeforeTheBotAnswers()
 	{
-		when(webhookClient.send(any(), any(), (Attachment) any())).thenReturn(new CompletableFuture<>());
+		when(botClient.send(any(), any(), any())).thenReturn(new CompletableFuture<>());
 		CombatAchievementStatus ca = new CombatAchievementStatus(new int[6], new int[6]);
 		CollectionLogStatus clog = new CollectionLogStatus(10, 100, new int[5], new int[5]);
 
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, ca, clog);
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT, ca, clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, ca, clog);
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, ca, clog);
 
-		verify(webhookClient, times(1)).send(eq(URL), any(), (Attachment) isNull());
+		verify(botClient, times(1)).send(eq(TARGET), any(), isNull());
 	}
 
 	@Test
-	public void skipsStatusThatDiscordAlreadyHas()
+	public void skipsStatusTheBotAlreadyHas()
 	{
 		when(deliveredSnapshots.isDelivered(eq(PostKind.STATUS), anyLong(), anyString())).thenReturn(true);
 
-		reporter.reportStatusIfChanged(URL, "Clanmate", "Clanmate", ACCOUNT,
+		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT,
 			new CombatAchievementStatus(new int[6], new int[6]), new CollectionLogStatus(10, 100, new int[5], new int[5]));
 
-		verify(webhookClient, never()).send(any(), any(), (Attachment) any());
+		verify(botClient, never()).send(any(), any(), any());
 	}
 
 	@Test
-	public void sendsAChangedSnapshotWithItsAttachmentAndRemembersIt()
+	public void sendsAChangedSnapshotWithItsEntriesAndRemembersIt()
 	{
-		reporter.reportClogSnapshot(URL, "Clanmate", "Clanmate", ACCOUNT, List.of(new OwnedItem(21992, "Vorki", 1)));
+		reporter.reportClogSnapshot(TARGET, "Clanmate", ACCOUNT, List.of(new OwnedItem(21992, "Vorki", 1)));
 
-		ArgumentCaptor<Attachment> attachment = ArgumentCaptor.forClass(Attachment.class);
-		verify(webhookClient).send(eq(URL), any(), attachment.capture());
-		assertEquals("SPOILER_clog-snapshot.json", attachment.getValue().getFilename());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), isNull());
+		assertEquals("clog-snapshot", payload.getValue().getKind());
+		assertEquals(1, payload.getValue().getEntries().size());
 		verify(deliveredSnapshots).markDelivered(eq(PostKind.CLOG_SNAPSHOT), eq(ACCOUNT), anyString());
 	}
 
 	@Test
-	public void skipsASnapshotDiscordAlreadyHas()
+	public void skipsASnapshotTheBotAlreadyHas()
 	{
 		when(deliveredSnapshots.isDelivered(eq(PostKind.PB_SNAPSHOT), anyLong(), anyString())).thenReturn(true);
 
-		reporter.reportPbSnapshot(URL, "Clanmate", "Clanmate", ACCOUNT, List.of(new StoredPersonalBest("zulrah", 55.0, "0:55")));
+		reporter.reportPbSnapshot(TARGET, "Clanmate", ACCOUNT, List.of(new StoredPersonalBest("zulrah", 55.0, "0:55")));
 
-		verify(webhookClient, never()).send(any(), any(), (Attachment) any());
+		verify(botClient, never()).send(any(), any(), any());
 	}
 
 	@Test
-	public void neitherQueuesNorRemembersASnapshotThatFailed()
+	public void neitherKeepsNorRemembersASnapshotTheBotCouldNotTake()
 	{
-		when(webhookClient.send(any(), any(), (Attachment) any())).thenReturn(CompletableFuture.completedFuture(false));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
-		reporter.reportCaSnapshot(URL, "Clanmate", "Clanmate", ACCOUNT, List.of(new CompletedAchievement(398, "Into the Den of Giants", "Easy")));
+		reporter.reportCaSnapshot(TARGET, "Clanmate", ACCOUNT, List.of(new CompletedAchievement(398, "Into the Den of Giants", "Easy")));
 
-		verify(pendingPostStore, never()).add(any(), any(), any());
+		verify(pendingPostStore, never()).add(any(), any());
 		verify(deliveredSnapshots, never()).markDelivered(any(), anyLong(), anyString());
 	}
 }

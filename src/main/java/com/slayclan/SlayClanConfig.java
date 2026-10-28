@@ -12,6 +12,7 @@ public interface SlayClanConfig extends Config
 	String MEMORY_GROUP = "slayclanmemory";
 	String ENABLED_KEY = "enabled";
 	String CONFIG_URL_KEY = "configUrl";
+	String CLAN_TOKEN_KEY = "clanToken";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
@@ -37,12 +38,13 @@ public interface SlayClanConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "discordName",
-		name = "Discord username",
-		description = "Your Discord username, which never changes. Your nickname in the Slay Clan Discord works too. The clan's bot uses it to find you",
+		keyName = CLAN_TOKEN_KEY,
+		name = "Clan token",
+		description = "Your personal token from the clan Discord: run /plugin token there and paste the answer here. It tells the clan's bot that the posts are yours",
+		secret = true,
 		position = 2
 	)
-	default String discordName()
+	default String clanToken()
 	{
 		return "";
 	}

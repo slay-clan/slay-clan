@@ -8,9 +8,18 @@ import org.junit.Test;
 public class PostKindTest
 {
 	@Test
-	public void footerNamesTheKindAndTheNonce()
+	public void kindIsFoundByTheNameThePostCarries()
 	{
-		assertEquals("slayclan:clog-snapshot:0123456789abcdef", PostKind.CLOG_SNAPSHOT.footer("0123456789abcdef"));
+		assertEquals(PostKind.CLOG_SNAPSHOT, PostKind.named("clog-snapshot"));
+	}
+
+	@Test
+	public void onlyTheActivityFeedKindsAreQuiet()
+	{
+		assertTrue(PostKind.CLOG.isFeed());
+		assertTrue(PostKind.STATUS.isFeed());
+		assertFalse(PostKind.TASK.isFeed());
+		assertFalse(PostKind.PB.isFeed());
 	}
 
 	@Test

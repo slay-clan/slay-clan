@@ -3,6 +3,7 @@ package com.slayclan.discord;
 import com.google.gson.Gson;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import net.runelite.client.config.ConfigManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -21,8 +22,8 @@ public class PendingPostStoreTest
 
 	private ConfigManager configManager;
 	private PendingPostStore store;
-	private final WebhookPayload payload = new WebhookPayload(List.of(
-		new WebhookPayload.Embed("Clanmate", "Has completed the following clan task", 1, NOW.toString(), null, List.of(), null)));
+	private final PostPayload payload = new PostPayload("task", "0123456789abcdef", "Clanmate", null, NOW.toString(),
+		Map.of("Task", "Clan Raid"), null);
 
 	@Before
 	public void setUp()
@@ -49,7 +50,7 @@ public class PendingPostStoreTest
 		List<PendingPost> loaded = store.load(NOW);
 
 		assertEquals(1, loaded.size());
-		assertEquals("Clanmate", loaded.get(0).getPayload().getEmbeds().get(0).getTitle());
+		assertEquals("Clanmate", loaded.get(0).getPayload().getAccount());
 	}
 
 	@Test
@@ -132,15 +133,15 @@ public class PendingPostStoreTest
 	}
 
 	@Test
-	public void remembersWhichKindOfPostWasKept()
+	public void keepsTheWholePostForTheRetry()
 	{
-		store.add(PostKind.CLOG, payload, NOW);
+		store.add(payload, NOW);
 
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
 		when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(saved.getValue());
 
-		assertEquals(PostKind.CLOG, store.load(NOW).get(0).getKind());
+		assertEquals(payload, store.load(NOW).get(0).getPayload());
 	}
 
 	@Test

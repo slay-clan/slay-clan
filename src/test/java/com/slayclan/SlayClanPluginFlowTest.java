@@ -5,13 +5,13 @@ import com.slayclan.activity.CollectionLogCapture;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
 import com.slayclan.config.TaskDefinition;
-import com.slayclan.discord.Attachment;
-import com.slayclan.discord.DiscordWebhookClient;
+import com.slayclan.discord.BotClient;
+import com.slayclan.discord.BotReply;
+import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
-import com.slayclan.discord.PostKind;
 import com.slayclan.discord.ScreenshotService;
-import com.slayclan.discord.WebhookPayload;
+import com.slayclan.discord.PostPayload;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
 import java.time.Instant;
@@ -45,6 +45,7 @@ import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.account.AccountSession;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.account.SessionManager;
 import net.runelite.client.game.ItemManager;
@@ -83,9 +84,9 @@ import org.mockito.junit.MockitoJUnitRunner;
 @RunWith(MockitoJUnitRunner.Silent.class)
 public class SlayClanPluginFlowTest
 {
-	private static final String WEBHOOK = "https://discord.com/api/webhooks/1/abc";
-	private static final String ACTIVITY = "https://discord.com/api/webhooks/2/def";
-	private static final String PB = "https://discord.com/api/webhooks/3/ghi";
+	private static final String API = "https://bot.example/api/v1/posts";
+	private static final String TOKEN = "sc_test";
+	private static final BotTarget TARGET = new BotTarget(API, TOKEN);
 	private static final String ME = "Clanmate";
 	private static final String OUTSIDER = "Stranger";
 
@@ -102,7 +103,7 @@ public class SlayClanPluginFlowTest
 	@Mock
 	private ScreenshotService screenshotService;
 	@Mock
-	private DiscordWebhookClient webhookClient;
+	private BotClient botClient;
 	@Mock
 	private ItemManager itemManager;
 	@Mock
@@ -113,6 +114,8 @@ public class SlayClanPluginFlowTest
 	private PluginManager pluginManager;
 	@Mock
 	private ConfigManager configManager;
+	@Mock
+	private ClientThread clientThread;
 	@Mock
 	private SessionManager sessionManager;
 	@Mock
@@ -137,12 +140,12 @@ public class SlayClanPluginFlowTest
 	public void setUp()
 	{
 		remoteConfig.setClanName("Slay Clan");
-		remoteConfig.setPointsWebhookUrl(WEBHOOK);
+		remoteConfig.setApiUrl(API);
 		when(remoteConfigService.current()).thenReturn(remoteConfig);
 		when(remoteConfigService.refresh(any())).thenReturn(CompletableFuture.completedFuture(null));
 		when(config.enabled()).thenReturn(true);
 		when(config.configUrl()).thenReturn("https://example.test/config.json");
-		when(config.discordName()).thenReturn(ME);
+		when(config.clanToken()).thenReturn(TOKEN);
 		when(sessionManager.getAccountSession()).thenReturn(mock(AccountSession.class));
 		when(pluginManager.getPlugins()).thenReturn(List.of());
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
@@ -156,6 +159,11 @@ public class SlayClanPluginFlowTest
 		doAnswer(invocation -> memory.put(invocation.getArgument(0) + "." + invocation.getArgument(1), invocation.getArgument(2)))
 			.when(configManager).setConfiguration(anyString(), anyString(), anyString());
 		when(worldView.isInstance()).thenReturn(true);
+		doAnswer(invocation ->
+		{
+			invocation.<Runnable>getArgument(0).run();
+			return null;
+		}).when(clientThread).invoke(any(Runnable.class));
 		when(client.getClanSettings()).thenReturn(clan);
 		EnumComposition noTasks = mock(EnumComposition.class);
 		when(noTasks.getIntVals()).thenReturn(new int[0]);
@@ -164,9 +172,8 @@ public class SlayClanPluginFlowTest
 		when(clan.getName()).thenReturn("Slay Clan");
 		when(clan.findMember(ME)).thenReturn(mock(ClanMember.class));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME));
-		when(webhookClient.send(anyString(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(true));
-		when(webhookClient.send(anyString(), any(), (Attachment) any())).thenReturn(CompletableFuture.completedFuture(true));
-		remoteConfig.setActivityWebhookUrl(ACTIVITY);
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
 		doAnswer(invocation ->
 		{
 			Consumer<byte[]> onCaptured = invocation.getArgument(0);
@@ -210,7 +217,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertEquals(List.of(), postedTasks());
 	}
 
 	@Test
@@ -223,7 +230,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
@@ -237,10 +244,9 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(WEBHOOK), payload.capture(), (byte[]) any());
-		assertEquals(new WebhookPayload.Field("Party", "Clanmate, Raidbuddy, Third", false),
-			payload.getValue().getEmbeds().get(0).getFields().get(4));
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("Clanmate, Raidbuddy, Third", payload.getValue().getFields().get("Party"));
 	}
 
 	@Test
@@ -254,9 +260,8 @@ public class SlayClanPluginFlowTest
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(WEBHOOK), payload.capture(), (byte[]) any());
-		assertEquals(4, payload.getValue().getEmbeds().get(0).getFields().size());
+		assertEquals(List.of("Any Kill"), postedTasks());
+		assertNull(postedField("Party"));
 	}
 
 	@Test
@@ -309,7 +314,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 		assertEquals(Set.of("quest-completed"), completed);
 	}
 
@@ -342,14 +347,14 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
 	public void keepsUndeliveredPostForRetry()
 	{
 		tasks(task("any-raid", "RAID:*", null, 0, false));
-		when(webhookClient.send(anyString(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(false));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
 		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
 		ticks(3);
@@ -361,39 +366,39 @@ public class SlayClanPluginFlowTest
 	public void runsOneRetryRoundAtATime()
 	{
 		tasks();
-		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"), null);
+		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
 		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
-		when(webhookClient.send(anyString(), any(), (byte[]) any())).thenReturn(new CompletableFuture<>());
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(new CompletableFuture<>());
 
 		login();
 		ticks(16);
 		login();
 		ticks(16);
 
-		verify(webhookClient, times(1)).send(eq(WEBHOOK), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(1)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
 	public void startsANewRetryRoundOnceTheLastOneFinished()
 	{
 		tasks();
-		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"), null);
+		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
 		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
-		when(webhookClient.send(anyString(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(false));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
 		login();
 		ticks(16);
 		login();
 		ticks(16);
 
-		verify(webhookClient, times(2)).send(eq(WEBHOOK), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(2)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
 	public void releasesTheRetryLockWhenLoadingThePendingPostsFails()
 	{
 		tasks();
-		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"), null);
+		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
 		when(pendingPostStore.load(any())).thenThrow(new IllegalStateException("broken")).thenReturn(List.of(pending));
 
 		login();
@@ -401,7 +406,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 
-		verify(webhookClient, times(1)).send(eq(WEBHOOK), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(1)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -432,11 +437,11 @@ public class SlayClanPluginFlowTest
 
 		chat("New item added to your collection log: <col=ff0000>Vorki</col>");
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(ACTIVITY), payload.capture(), (Attachment) isNull());
-		List<WebhookPayload.Field> fields = payload.getValue().getEmbeds().get(0).getFields();
-		assertEquals("Vorki", fields.get(1).getValue());
-		assertEquals("21992", fields.get(2).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) isNull());
+		Map<String, String> fields = payload.getValue().getFields();
+		assertEquals("Vorki", fields.get("Item"));
+		assertEquals("21992", fields.get("Item id"));
 	}
 
 	@Test
@@ -446,11 +451,11 @@ public class SlayClanPluginFlowTest
 
 		chat("CA_ID:398|Congratulations, you've completed an easy combat task: @ach_comp@Into the Den of Giants</col> (1 point).");
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(ACTIVITY), payload.capture(), (Attachment) isNull());
-		List<WebhookPayload.Field> fields = payload.getValue().getEmbeds().get(0).getFields();
-		assertEquals("398", fields.get(2).getValue());
-		assertEquals("Easy", fields.get(3).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) isNull());
+		Map<String, String> fields = payload.getValue().getFields();
+		assertEquals("398", fields.get("Task id"));
+		assertEquals("Easy", fields.get("Tier"));
 	}
 
 	@Test
@@ -568,12 +573,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		ArgumentCaptor<Attachment> attachment = ArgumentCaptor.forClass(Attachment.class);
-		verify(webhookClient, times(2)).send(eq(ACTIVITY), payload.capture(), attachment.capture());
-		assertEquals("SPOILER_ca-snapshot.json", attachment.getAllValues().get(0).getFilename());
-		assertNull(attachment.getAllValues().get(1));
-		assertEquals("Progress", payload.getAllValues().get(1).getEmbeds().get(0).getDescription());
+		assertEquals(List.of("ca-snapshot", "status"), postedKinds());
 	}
 
 	@Test
@@ -584,12 +584,12 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		verify(webhookClient, never()).send(eq(ACTIVITY), any(), (Attachment) any());
+		verify(botClient, never()).send(eq(TARGET), any(), (byte[]) any());
 
 		when(client.getAccountHash()).thenReturn(1L);
 		ticks(1);
 
-		verify(webhookClient, times(2)).send(eq(ACTIVITY), any(), (Attachment) any());
+		verify(botClient, times(2)).send(eq(TARGET), any(), (byte[]) any());
 	}
 
 	@Test
@@ -602,15 +602,12 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		ArgumentCaptor<Attachment> attachment = ArgumentCaptor.forClass(Attachment.class);
-		verify(webhookClient, times(1)).send(eq(ACTIVITY), any(), attachment.capture());
-		assertNull(attachment.getValue());
+		assertEquals(List.of("status"), postedKinds());
 
 		when(client.getEnum(anyInt())).thenReturn(empty);
 		ticks(1);
 
-		verify(webhookClient, times(2)).send(eq(ACTIVITY), any(), attachment.capture());
-		assertEquals("SPOILER_ca-snapshot.json", attachment.getValue().getFilename());
+		assertEquals(List.of("status", "ca-snapshot"), postedKinds());
 	}
 
 	@Test
@@ -619,70 +616,54 @@ public class SlayClanPluginFlowTest
 		tasks();
 		login();
 		ticks(6);
-		verify(webhookClient, times(1)).send(eq(ACTIVITY), any(), (Attachment) isNull());
+		assertEquals(1, postedCount("status"));
 
 		plugin.onVarbitChanged(varbitChanged(VarbitID.CHAT_FILTER_ASSISTSYSTEM, -1));
 		ticks(1);
-		verify(webhookClient, times(1)).send(eq(ACTIVITY), any(), (Attachment) isNull());
+		assertEquals(1, postedCount("status"));
 
 		when(client.getVarbitValue(VarbitID.CA_TOTAL_TASKS_COMPLETED_EASY)).thenReturn(1);
 		plugin.onVarbitChanged(varbitChanged(VarbitID.CA_TOTAL_TASKS_COMPLETED_EASY, -1));
 		ticks(1);
-		verify(webhookClient, times(2)).send(eq(ACTIVITY), any(), (Attachment) isNull());
-	}
-
-	@Test
-	public void postsNothingToTheActivityWebhookWhenTheConfigHasNone()
-	{
-		tasks();
-		remoteConfig.setActivityWebhookUrl(null);
-
-		chat("CA_ID:398|Congratulations, you've completed an easy combat task: @ach_comp@Into the Den of Giants</col> (1 point).");
-		login();
-		ticks(6);
-
-		verify(webhookClient, never()).send(eq(ACTIVITY), any(), (Attachment) any());
+		assertEquals(2, postedCount("status"));
 	}
 
 	@Test
 	public void postsANewPersonalBestWithScreenshotToThePbWebhook()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 
 		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		List<WebhookPayload.Field> fields = payload.getValue().getEmbeds().get(0).getFields();
-		assertEquals("Zulrah", fields.get(1).getValue());
-		assertEquals("0:55", fields.get(2).getValue());
-		assertEquals("yes", fields.get(6).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		Map<String, String> fields = payload.getValue().getFields();
+		assertEquals("Zulrah", fields.get("Boss"));
+		assertEquals("0:55", fields.get("Time"));
+		assertEquals("yes", fields.get("New"));
 	}
 
 	@Test
 	public void reportsTheFirstKillAtAScaleAndTheGamesBestOnceForABoss()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		login();
 
 		chat("Fight duration: <col=ff0000>1:10</col>. Personal best: 0:55");
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient, times(2)).send(eq(PB), payload.capture(), (byte[]) any());
-		WebhookPayload.Embed fastest = payload.getAllValues().get(0).getEmbeds().get(0);
-		assertEquals("Fastest kill at this scale since the plugin was installed", fastest.getDescription());
-		assertEquals("1:10", fastest.getFields().get(2).getValue());
-		assertEquals("1", fastest.getFields().get(4).getValue());
-		WebhookPayload.Embed current = payload.getAllValues().get(1).getEmbeds().get(0);
-		assertEquals("Current personal best", current.getDescription());
-		assertEquals("0:55", current.getFields().get(2).getValue());
-		assertEquals("Scale", current.getFields().get(4).getName());
+		List<PostPayload> bests = posted("pb");
+		assertEquals(2, bests.size());
+		Map<String, String> fastest = bests.get(0).getFields();
+		assertEquals("no", fastest.get("New"));
+		assertEquals("1:10", fastest.get("Time"));
+		assertEquals("1", fastest.get("Team size"));
+		Map<String, String> current = bests.get(1).getFields();
+		assertEquals("0:55", current.get("Time"));
+		assertTrue(current.containsKey("Scale"));
 
 		chat("Fight duration: <col=ff0000>1:12</col>. Personal best: 0:55");
 		chat("Your Zulrah kill count is: <col=ff0000>11</col>.");
@@ -692,14 +673,13 @@ public class SlayClanPluginFlowTest
 		chat("Your Zulrah kill count is: <col=ff0000>12</col>.");
 		ticks(3);
 
-		verify(webhookClient, times(2)).send(eq(PB), any(), (byte[]) any());
+		assertEquals(2, postedCount("pb"));
 	}
 
 	@Test
 	public void reportsAFasterKillAtTheSameScaleEvenWhenTheGameKnowsABetterTime()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>10</col>.");
@@ -708,18 +688,17 @@ public class SlayClanPluginFlowTest
 		chat("Your Yama kill count is: <col=ff0000>11</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient, times(3)).send(eq(PB), payload.capture(), (byte[]) any());
-		WebhookPayload.Embed faster = payload.getAllValues().get(2).getEmbeds().get(0);
-		assertEquals("Fastest kill at this scale since the plugin was installed", faster.getDescription());
-		assertEquals("5:40", faster.getFields().get(2).getValue());
+		List<PostPayload> bests = posted("pb");
+		assertEquals(3, bests.size());
+		Map<String, String> faster = bests.get(2).getFields();
+		assertEquals("no", faster.get("New"));
+		assertEquals("5:40", faster.get("Time"));
 	}
 
 	@Test
 	public void sendsStoredPersonalBestsAfterLogin()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(configManager.getRSProfileKey()).thenReturn("rsprofile.abc");
 		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(List.of("zulrah"));
 		when(configManager.getRSProfileConfiguration("personalbest", "zulrah", double.class)).thenReturn(55.0);
@@ -727,17 +706,15 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		ArgumentCaptor<Attachment> attachment = ArgumentCaptor.forClass(Attachment.class);
-		verify(webhookClient).send(eq(PB), any(), attachment.capture());
-		assertEquals("SPOILER_pb-snapshot.json", attachment.getValue().getFilename());
-		assertTrue(new String(attachment.getValue().getBytes(), java.nio.charset.StandardCharsets.UTF_8).contains("\"boss\":\"zulrah\""));
+		List<PostPayload> snapshots = posted("pb-snapshot");
+		assertEquals(1, snapshots.size());
+		assertTrue(gson.toJson(snapshots.get(0).getEntries()).contains("\"boss\":\"zulrah\""));
 	}
 
 	@Test
 	public void countsTheClanmatesAtTheBossAsTheTeamSizeAndNamesThem()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy"));
 
@@ -745,19 +722,17 @@ public class SlayClanPluginFlowTest
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		List<WebhookPayload.Field> fields = payload.getValue().getEmbeds().get(0).getFields();
-		assertEquals("Team size", fields.get(4).getName());
-		assertEquals("2", fields.get(4).getValue());
-		assertEquals(ME + ", Raidbuddy", fields.get(5).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		Map<String, String> fields = payload.getValue().getFields();
+		assertEquals("2", fields.get("Team size"));
+		assertEquals(ME + ", Raidbuddy", fields.get("Party"));
 	}
 
 	@Test
 	public void takesTheTeamSizeFromTheGameWhenItPrintsOne()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
 		when(clan.findMember("Thirdmate")).thenReturn(mock(ClanMember.class));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy", "Thirdmate"));
@@ -766,16 +741,15 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		assertEquals("3", payload.getValue().getEmbeds().get(0).getFields().get(4).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("3", payload.getValue().getFields().get("Team size"));
 	}
 
 	@Test
 	public void postsNoChambersPersonalBestWhenFewerPlayersAreFoundThanTheGamesTeamSize()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy"));
 
@@ -783,7 +757,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(eq(PB), any(), (byte[]) any());
+		assertEquals(0, postedCount("pb"));
 	}
 
 	@Test
@@ -806,7 +780,6 @@ public class SlayClanPluginFlowTest
 	public void postsNothingForContentTheClanHasSwitchedOff()
 	{
 		tasks(task("archive-crew", "RAID:Fractured Archive", "20:00", 3, true), task("any-raid", "RAID:*", null, 0, false));
-		remoteConfig.setPbWebhookUrl(PB);
 		remoteConfig.setIgnoredContent(List.of("Fractured Archive"));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy", "Third"));
 		when(clan.findMember(anyString())).thenReturn(mock(ClanMember.class));
@@ -815,7 +788,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Fractured Archive count is: <col=ff0000>1</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
@@ -835,7 +808,6 @@ public class SlayClanPluginFlowTest
 	public void postsAFracturedArchivePersonalBestWithTheTotalTimeAndTeamSize()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
 		when(clan.findMember("Third")).thenReturn(mock(ClanMember.class));
 		when(participantReader.read("RAID:Fractured Archive")).thenReturn(List.of(ME, "Raidbuddy", "Third"));
@@ -844,21 +816,20 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Fractured Archive count is: <col=ff0000>1</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		List<WebhookPayload.Field> fields = payload.getValue().getEmbeds().get(0).getFields();
-		assertEquals("Fractured Archive", fields.get(1).getValue());
-		assertEquals("2:25.80", fields.get(2).getValue());
-		assertEquals("total", fields.get(3).getValue());
-		assertEquals("3", fields.get(4).getValue());
-		assertEquals("yes", fields.get(6).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		Map<String, String> fields = payload.getValue().getFields();
+		assertEquals("Fractured Archive", fields.get("Boss"));
+		assertEquals("2:25.80", fields.get("Time"));
+		assertEquals("total", fields.get("Time type"));
+		assertEquals("3", fields.get("Team size"));
+		assertEquals("yes", fields.get("New"));
 	}
 
 	@Test
 	public void postsNoFracturedArchivePersonalBestWhenFewerNamesAreReadThanTheGamesPartySlots()
 	{
 		tasks(task("any-raid", "RAID:*", null, 0, true));
-		remoteConfig.setPbWebhookUrl(PB);
 		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
 		when(participantReader.read("RAID:Fractured Archive")).thenReturn(List.of(ME, "Raidbuddy"));
 		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
@@ -867,56 +838,52 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Fractured Archive count is: <col=ff0000>1</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
 	public void postsNoRaidPersonalBestWhenAnOutsiderWasInTheParty()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, OUTSIDER));
 
 		chat("Tombs of Amascut total completion time: <col=ff0000>25:00</col> (new personal best)");
 		chat("Your completed Tombs of Amascut count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
 	public void postsNoBossPersonalBestWithAStrangerInTheInstance()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, OUTSIDER));
 
 		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
 	public void postsNoBossPersonalBestOutsideAnInstance()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(worldView.isInstance()).thenReturn(false);
 
 		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
 		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
+		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
 	public void postsASoloKillOnAnOpenWorldWhenTheGameCountsTheTeamItself()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(worldView.isInstance()).thenReturn(false);
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, OUTSIDER));
 
@@ -924,66 +891,65 @@ public class SlayClanPluginFlowTest
 		chat("Your Nightmare kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		assertEquals("1", payload.getValue().getEmbeds().get(0).getFields().get(4).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("1", payload.getValue().getFields().get("Team size"));
 	}
 
 	@Test
 	public void postsASoloKillAmongBystandersInTheArenaWhenTheGameCountsTheTeamItself()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(participantReader.read(anyString())).thenReturn(List.of(ME, OUTSIDER));
 
 		chat("Team size: <col=ff0000>Solo</col> Fight duration: <col=ff0000>16:00</col> (new personal best)");
 		chat("Your Nightmare kill count is: <col=ff0000>10</col>.");
 		ticks(3);
 
-		ArgumentCaptor<WebhookPayload> payload = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(PB), payload.capture(), (byte[]) any());
-		assertEquals("1", payload.getValue().getEmbeds().get(0).getFields().get(4).getValue());
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("1", payload.getValue().getFields().get("Team size"));
 	}
 
 	@Test
 	public void sendsNoStoredPersonalBestsBeforeRuneLiteKnowsTheGameProfile()
 	{
 		tasks();
-		remoteConfig.setPbWebhookUrl(PB);
 		when(configManager.getRSProfileKey()).thenReturn(null);
 
 		login();
 		ticks(6);
 
-		verify(webhookClient, never()).send(eq(PB), any(), (Attachment) any());
+		assertEquals(0, postedCount("pb-snapshot"));
 	}
 
 	@Test
-	public void retriesAKeptActivityPostToTheWebhookTheClanConfigHasNow()
+	public void retriesAKeptPostToTheBotTheClanConfigNamesNow()
 	{
 		tasks();
-		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"), PostKind.CLOG);
+		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"));
 		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
-		remoteConfig.setActivityWebhookUrl("https://discord.com/api/webhooks/9/rotated");
+		remoteConfig.setApiUrl("https://moved.example/api/v1/posts");
 
 		login();
 		ticks(16);
 
-		verify(webhookClient).send(eq("https://discord.com/api/webhooks/9/rotated"), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), eq(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
-	public void dropsAKeptPersonalBestPostWhenTheClanHasTurnedPersonalBestsOff()
+	public void saysInChatWhatTheBotAnsweredAboutAPost()
 	{
-		tasks();
-		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept pb"), PostKind.PB);
-		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(botClient.send(any(), any(), (byte[]) any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.delivered("Not recorded: already completed.")));
 
-		login();
-		ticks(16);
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
 
-		verify(webhookClient, never()).send(anyString(), eq(pending.getPayload()), (byte[]) any());
-		verify(pendingPostStore).remove(pending);
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			org.mockito.ArgumentMatchers.contains("Slay Clan: Not recorded: already completed."), isNull());
+		verify(pendingPostStore, never()).add(any(), any());
 	}
 
 	private static VarbitChanged varbitChanged(int varbitId, int varpId)
@@ -992,18 +958,6 @@ public class SlayClanPluginFlowTest
 		event.setVarbitId(varbitId);
 		event.setVarpId(varpId);
 		return event;
-	}
-
-	@Test
-	public void postsNoPersonalBestWithoutAPbWebhook()
-	{
-		tasks();
-
-		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
-		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
-		ticks(3);
-
-		verify(webhookClient, never()).send(anyString(), any(), (byte[]) any());
 	}
 
 	private void login()
@@ -1074,27 +1028,49 @@ public class SlayClanPluginFlowTest
 
 	private String postedField(String name)
 	{
-		ArgumentCaptor<WebhookPayload> payloads = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient).send(eq(WEBHOOK), payloads.capture(), (byte[]) any());
-		return payloads.getValue().getEmbeds().get(0).getFields().stream()
-			.filter(field -> field.getName().equals(name))
-			.map(WebhookPayload.Field::getValue)
-			.findFirst()
-			.orElse(null);
+		List<PostPayload> tasks = posted("task");
+		assertEquals(1, tasks.size());
+		return tasks.get(0).getFields().get(name);
+	}
+
+	// The activity feed goes out on its own at login, so tests about what the member did look past it
+	private List<PostPayload> postedTasksDropsAndBests()
+	{
+		return posted().stream().filter(payload -> !payload.postKind().isFeed()).collect(Collectors.toList());
 	}
 
 	private List<String> postedTasks()
 	{
-		ArgumentCaptor<WebhookPayload> payloads = ArgumentCaptor.forClass(WebhookPayload.class);
-		verify(webhookClient, atLeast(0)).send(eq(WEBHOOK), payloads.capture(), (byte[]) any());
-		return payloads.getAllValues().stream()
-			.map(payload -> payload.getEmbeds().get(0).getFields().get(0).getValue())
+		return posted("task").stream()
+			.map(payload -> payload.getFields().get("Task"))
 			.collect(Collectors.toList());
 	}
 
-	private static WebhookPayload payload(String title)
+	private List<String> postedKinds()
 	{
-		return new WebhookPayload(List.of(new WebhookPayload.Embed(title, "", 0, "2026-10-10T18:00:00Z", null, List.of(), null)));
+		return posted().stream().map(PostPayload::getKind).collect(Collectors.toList());
+	}
+
+	private long postedCount(String kind)
+	{
+		return posted(kind).size();
+	}
+
+	private List<PostPayload> posted(String kind)
+	{
+		return posted().stream().filter(payload -> payload.getKind().equals(kind)).collect(Collectors.toList());
+	}
+
+	private List<PostPayload> posted()
+	{
+		ArgumentCaptor<PostPayload> payloads = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient, atLeast(0)).send(eq(TARGET), payloads.capture(), (byte[]) any());
+		return payloads.getAllValues();
+	}
+
+	private static PostPayload payload(String task)
+	{
+		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null);
 	}
 
 	private static String baselineKey(String taskId, long accountHash)

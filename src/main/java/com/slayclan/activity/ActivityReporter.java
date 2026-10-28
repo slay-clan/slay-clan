@@ -1,88 +1,91 @@
 package com.slayclan.activity;
 
-import com.slayclan.discord.Attachment;
-import com.slayclan.discord.DiscordWebhookClient;
+import com.slayclan.discord.BotClient;
+import com.slayclan.discord.BotReply;
+import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
-import com.slayclan.discord.WebhookPayload;
+import com.slayclan.discord.PostPayload;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Sends activity posts. Events and PBs are kept for retry when Discord cannot be reached. Status and snapshots are
- * only sent when their content differs from what Discord last accepted for the account, and are not queued, since
- * the next login or log opening sends a fresh one when needed.
+ * Sends activity posts. Events and PBs are kept for retry when the bot cannot take them. Status and snapshots
+ * are only sent when their content differs from what the bot last accepted for the account, and are not queued,
+ * since the next login or log opening sends a fresh one when needed. What the bot says about a post goes to the
+ * chat.
  */
 @Slf4j
 public class ActivityReporter
 {
 	private final ActivityFormatter formatter;
-	private final DiscordWebhookClient webhookClient;
+	private final BotClient botClient;
 	private final PendingPostStore pendingPostStore;
 	private final DeliveredSnapshots deliveredSnapshots;
-	// A second check can run before Discord has answered the first send, so the fingerprint last sent per kind and
-	// account counts as delivered meanwhile, and only that one is remembered when Discord answers, however the
+	private final Consumer<String> chat;
+	// A second check can run before the bot has answered the first send, so the fingerprint last sent per kind and
+	// account counts as delivered meanwhile, and only that one is remembered when the bot answers, however the
 	// answers are ordered
 	private final Map<String, String> lastSent = new ConcurrentHashMap<>();
 
-	public ActivityReporter(ActivityFormatter formatter, DiscordWebhookClient webhookClient, PendingPostStore pendingPostStore,
-		DeliveredSnapshots deliveredSnapshots)
+	public ActivityReporter(ActivityFormatter formatter, BotClient botClient, PendingPostStore pendingPostStore,
+		DeliveredSnapshots deliveredSnapshots, Consumer<String> chat)
 	{
 		this.formatter = formatter;
-		this.webhookClient = webhookClient;
+		this.botClient = botClient;
 		this.pendingPostStore = pendingPostStore;
 		this.deliveredSnapshots = deliveredSnapshots;
+		this.chat = chat;
 	}
 
-	public void reportClog(String webhookUrl, String discordName, String account, String item, int itemId, int quantity, int logSlots)
+	public void reportClog(BotTarget target, String account, String item, int itemId, int quantity, int logSlots)
 	{
-		sendOrQueue(webhookUrl, PostKind.CLOG, formatter.clogEvent(discordName, account, item, itemId, quantity, logSlots, Instant.now()));
+		sendOrQueue(target, formatter.clogEvent(account, item, itemId, quantity, logSlots, Instant.now()));
 	}
 
-	public void reportCa(String webhookUrl, String discordName, String account, String task, int taskId, String tier)
+	public void reportCa(BotTarget target, String account, String task, int taskId, String tier)
 	{
-		sendOrQueue(webhookUrl, PostKind.CA, formatter.caEvent(discordName, account, task, taskId, tier, Instant.now()));
+		sendOrQueue(target, formatter.caEvent(account, task, taskId, tier, Instant.now()));
 	}
 
-	public void reportStatusIfChanged(String webhookUrl, String discordName, String account, long accountHash,
-		CombatAchievementStatus ca, CollectionLogStatus clog)
+	public void reportStatusIfChanged(BotTarget target, String account, long accountHash, CombatAchievementStatus ca,
+		CollectionLogStatus clog)
 	{
 		String fingerprint = DeliveredSnapshots.fingerprint(
 			String.join("|", account, ca.completedText(), ca.tierStatusText(), clog.slotsText(), clog.categoriesText()));
-		sendIfChanged(webhookUrl, PostKind.STATUS, accountHash, fingerprint,
-			formatter.status(discordName, account, ca, clog, Instant.now()), null);
+		sendIfChanged(target, PostKind.STATUS, accountHash, fingerprint, formatter.status(account, ca, clog, Instant.now()));
 	}
 
-	public void reportCaSnapshot(String webhookUrl, String discordName, String account, long accountHash, List<CompletedAchievement> tasks)
+	public void reportCaSnapshot(BotTarget target, String account, long accountHash, List<CompletedAchievement> tasks)
 	{
-		sendIfChanged(webhookUrl, PostKind.CA_SNAPSHOT, accountHash, formatter.caSnapshot(discordName, account, accountHash, tasks, Instant.now()));
+		sendIfChanged(target, PostKind.CA_SNAPSHOT, accountHash, formatter.caSnapshot(account, accountHash, tasks, Instant.now()));
 	}
 
-	public void reportClogSnapshot(String webhookUrl, String discordName, String account, long accountHash, List<OwnedItem> items)
+	public void reportClogSnapshot(BotTarget target, String account, long accountHash, List<OwnedItem> items)
 	{
-		sendIfChanged(webhookUrl, PostKind.CLOG_SNAPSHOT, accountHash, formatter.clogSnapshot(discordName, account, accountHash, items, Instant.now()));
+		sendIfChanged(target, PostKind.CLOG_SNAPSHOT, accountHash, formatter.clogSnapshot(account, accountHash, items, Instant.now()));
 	}
 
-	public void reportPbSnapshot(String webhookUrl, String discordName, String account, long accountHash, List<StoredPersonalBest> bests)
+	public void reportPbSnapshot(BotTarget target, String account, long accountHash, List<StoredPersonalBest> bests)
 	{
-		sendIfChanged(webhookUrl, PostKind.PB_SNAPSHOT, accountHash, formatter.pbSnapshot(discordName, account, accountHash, bests, Instant.now()));
+		sendIfChanged(target, PostKind.PB_SNAPSHOT, accountHash, formatter.pbSnapshot(account, accountHash, bests, Instant.now()));
 	}
 
-	public void reportPersonalBest(String webhookUrl, WebhookPayload payload, byte[] png)
+	public void reportPersonalBest(BotTarget target, PostPayload payload, byte[] png)
 	{
-		webhookClient.send(webhookUrl, payload, png).thenAccept(sent -> keepIfUndelivered(sent, PostKind.PB, payload));
+		botClient.send(target, payload, png).thenAccept(reply -> settle(reply, payload));
 	}
 
-	private void sendIfChanged(String webhookUrl, PostKind kind, long accountHash, ActivityFormatter.Snapshot snapshot)
+	private void sendIfChanged(BotTarget target, PostKind kind, long accountHash, ActivityFormatter.Snapshot snapshot)
 	{
-		sendIfChanged(webhookUrl, kind, accountHash, snapshot.getFingerprint(), snapshot.getPayload(), snapshot.getAttachment());
+		sendIfChanged(target, kind, accountHash, snapshot.getFingerprint(), snapshot.getPayload());
 	}
 
-	private void sendIfChanged(String webhookUrl, PostKind kind, long accountHash, String fingerprint, WebhookPayload payload,
-		Attachment attachment)
+	private void sendIfChanged(BotTarget target, PostKind kind, long accountHash, String fingerprint, PostPayload payload)
 	{
 		String key = kind + ":" + accountHash;
 		if (alreadyDeliveredOrOnItsWay(kind, accountHash, fingerprint, key))
@@ -91,9 +94,10 @@ public class ActivityReporter
 			return;
 		}
 		lastSent.put(key, fingerprint);
-		webhookClient.send(webhookUrl, payload, attachment).thenAccept(sent ->
+		botClient.send(target, payload, null).thenAccept(reply ->
 		{
-			if (!sent)
+			tell(reply);
+			if (!reply.isDelivered())
 			{
 				log.info("{} not delivered, it is sent again next time", kind);
 				lastSent.remove(key, fingerprint);
@@ -110,16 +114,25 @@ public class ActivityReporter
 		return deliveredSnapshots.isDelivered(kind, accountHash, fingerprint) || fingerprint.equals(lastSent.get(key));
 	}
 
-	private void sendOrQueue(String webhookUrl, PostKind kind, WebhookPayload payload)
+	private void sendOrQueue(BotTarget target, PostPayload payload)
 	{
-		webhookClient.send(webhookUrl, payload, (Attachment) null).thenAccept(sent -> keepIfUndelivered(sent, kind, payload));
+		botClient.send(target, payload, null).thenAccept(reply -> settle(reply, payload));
 	}
 
-	private void keepIfUndelivered(boolean sent, PostKind kind, WebhookPayload payload)
+	private void settle(BotReply reply, PostPayload payload)
 	{
-		if (!sent)
+		tell(reply);
+		if (!reply.isDelivered())
 		{
-			pendingPostStore.add(kind, payload, Instant.now());
+			pendingPostStore.add(payload, Instant.now());
+		}
+	}
+
+	private void tell(BotReply reply)
+	{
+		if (reply.getMessage() != null)
+		{
+			chat.accept(reply.getMessage());
 		}
 	}
 }

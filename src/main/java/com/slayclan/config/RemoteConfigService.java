@@ -58,7 +58,7 @@ public class RemoteConfigService
 
 	/**
 	 * A failed refresh keeps the previous config only while the URL is unchanged, so that switching to a broken
-	 * URL cannot keep posting to the old webhook. Only the most recent refresh may change the config, so a slow
+	 * URL cannot keep posting to the old bot. Only the most recent refresh may change the config, so a slow
 	 * response for an old URL cannot overwrite a newer one.
 	 */
 	public CompletableFuture<Void> refresh(String url)
