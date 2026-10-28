@@ -9,6 +9,7 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class ActivityFormatterTest
@@ -134,5 +135,16 @@ public class ActivityFormatterTest
 			"Scale", "unknown, the game keeps one personal best per boss",
 			"New", "no"), post.getFields());
 		assertFalse(post.getFields().containsKey("Team size"));
+	}
+
+	@Test
+	public void onlyACurrentBestReportedForTheBoardIsQuietInTheChat()
+	{
+		assertTrue(formatter.currentBossBest("Clanmate", "Yama", "3:09", Kind.SINGLE, AT).isReceiptQuiet());
+		assertTrue(formatter.personalBest("Clanmate", "Zulrah", "0:55", Kind.SINGLE, 1, List.of("Clanmate"), PersonalBestClaim.CURRENT, AT)
+			.isReceiptQuiet());
+		assertFalse(formatter.personalBest("Clanmate", "Zulrah", "0:55", Kind.SINGLE, 1, List.of("Clanmate"), PersonalBestClaim.FASTEST_AT_SCALE, AT)
+			.isReceiptQuiet());
+		assertTrue(formatter.clogEvent("Clanmate", "Vorki", 21992, 1, 141, AT).isReceiptQuiet());
 	}
 }

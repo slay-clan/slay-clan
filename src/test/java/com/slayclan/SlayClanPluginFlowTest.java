@@ -1070,7 +1070,7 @@ public class SlayClanPluginFlowTest
 
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null);
+		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false);
 	}
 
 	private static String baselineKey(String taskId, long accountHash)

@@ -60,7 +60,7 @@ public class MessageFormatter
 
 	public static PostPayload payload(PostKind kind, String account, Map<String, String> fields, Instant at)
 	{
-		return new PostPayload(kind.getName(), Nonce.next(), account, null, at.toString(), fields, null);
+		return new PostPayload(kind.getName(), Nonce.next(), account, null, at.toString(), fields, null, false);
 	}
 
 	private static Map<String, String> taskFields(TaskDefinition task)

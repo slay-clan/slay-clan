@@ -162,14 +162,14 @@ public class BotClient
 		return BotReply.delivered(answer == null ? "The clan bot rejected a post." : answer.getMessage());
 	}
 
-	// The activity feed is sent quietly; only what the member acted on, or anything that went wrong, is said in chat
+	// Bookkeeping posts are sent quietly; only what the member did right now, or anything that went wrong, is said in chat
 	private static String chatLine(PostPayload payload, Answer answer)
 	{
 		if (answer == null || STATUS_DUPLICATE.equals(answer.getStatus()))
 		{
 			return null;
 		}
-		if (STATUS_RECORDED.equals(answer.getStatus()) && payload.postKind().isFeed())
+		if (STATUS_RECORDED.equals(answer.getStatus()) && payload.isReceiptQuiet())
 		{
 			return null;
 		}

@@ -91,7 +91,7 @@ public class ActivityFormatter
 		fields.put("Team size", String.valueOf(teamSize));
 		fields.put("Party", String.join(", ", party));
 		fields.put("New", claim.isNewRecord() ? "yes" : "no");
-		return MessageFormatter.payload(PostKind.PB, account, fields, at);
+		return personalBestPayload(account, fields, claim, at);
 	}
 
 	/**
@@ -106,7 +106,14 @@ public class ActivityFormatter
 		fields.put("Time type", timeType(kind));
 		fields.put("Scale", "unknown, the game keeps one personal best per boss");
 		fields.put("New", "no");
-		return MessageFormatter.payload(PostKind.PB, account, fields, at);
+		return personalBestPayload(account, fields, PersonalBestClaim.CURRENT, at);
+	}
+
+	// A current best is reported so the board can be filled in, not because of this kill, so it gets no chat line
+	private static PostPayload personalBestPayload(String account, Map<String, String> fields, PersonalBestClaim claim, Instant at)
+	{
+		return new PostPayload(PostKind.PB.getName(), Nonce.next(), account, null, at.toString(), fields, null,
+			claim == PersonalBestClaim.CURRENT);
 	}
 
 	private static String timeType(TimedLine.Kind kind)
@@ -122,7 +129,7 @@ public class ActivityFormatter
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("Items", String.valueOf(entries.size()));
 		PostPayload payload = new PostPayload(kind.getName(), Nonce.next(), account, String.valueOf(accountHash), at.toString(),
-			fields, entries);
+			fields, entries, false);
 		return new Snapshot(payload, DeliveredSnapshots.fingerprint(gson.toJson(entries)));
 	}
 }
