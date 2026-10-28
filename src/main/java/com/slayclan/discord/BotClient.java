@@ -39,6 +39,7 @@ public class BotClient
 	private static final long DEFAULT_RETRY_MILLIS = 1_000;
 	// The bot's limit resets within a minute; anything longer is left to the pending post retry
 	private static final long MAX_RETRY_MILLIS = 60_000;
+	private static final long RESPONSE_TIMEOUT_SECONDS = 60;
 	private static final int UNAUTHORIZED = 401;
 	private static final int TOO_LARGE = 413;
 	private static final int TOO_MANY = 429;
@@ -59,7 +60,9 @@ public class BotClient
 	@Inject
 	public BotClient(OkHttpClient httpClient, Gson gson, ScheduledExecutorService executor)
 	{
-		this.httpClient = httpClient;
+		// The bot writes the sheet and posts the review message before it answers, and handles posts one at a
+		// time, so a login burst takes well over OkHttp's ten second default
+		this.httpClient = httpClient.newBuilder().readTimeout(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS).build();
 		this.gson = gson;
 		this.executor = executor;
 	}
