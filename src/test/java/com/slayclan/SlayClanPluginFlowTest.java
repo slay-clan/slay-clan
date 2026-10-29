@@ -44,10 +44,9 @@ import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.client.account.AccountSession;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.account.SessionManager;
+import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.http.api.item.ItemPrice;
@@ -117,8 +116,6 @@ public class SlayClanPluginFlowTest
 	@Mock
 	private ClientThread clientThread;
 	@Mock
-	private SessionManager sessionManager;
-	@Mock
 	private ClanSettings clan;
 	@Mock
 	private Player localPlayer;
@@ -146,7 +143,9 @@ public class SlayClanPluginFlowTest
 		when(config.enabled()).thenReturn(true);
 		when(config.configUrl()).thenReturn("https://example.test/config.json");
 		when(config.clanToken()).thenReturn(TOKEN);
-		when(sessionManager.getAccountSession()).thenReturn(mock(AccountSession.class));
+		ConfigProfile syncedProfile = mock(ConfigProfile.class);
+		when(syncedProfile.isSync()).thenReturn(true);
+		when(configManager.getProfile()).thenReturn(syncedProfile);
 		when(pluginManager.getPlugins()).thenReturn(List.of());
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
 		when(localPlayer.getName()).thenReturn(ME);

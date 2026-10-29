@@ -91,9 +91,9 @@ import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.client.account.SessionManager;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
@@ -182,9 +182,6 @@ public class SlayClanPlugin extends Plugin
 
 	@Inject
 	private PluginManager pluginManager;
-
-	@Inject
-	private SessionManager sessionManager;
 
 	private final RaidCompletionDetector raidCompletionDetector = new RaidCompletionDetector();
 	private final RaidTeamSizeDetector raidTeamSizeDetector = new RaidTeamSizeDetector();
@@ -1377,19 +1374,26 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	/**
-	 * Posts need the member's clan token so the bot knows whose they are, and a RuneLite account so that one-time
-	 * tasks are remembered across computers and shared with alts.
+	 * Posts need the member's clan token so the bot knows whose they are, and a profile that syncs to a RuneLite
+	 * account so that one-time tasks are remembered across computers and shared with alts.
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && !clanToken().isEmpty() && sessionManager.getAccountSession() != null;
+		boolean canPost = config.enabled() && !clanToken().isEmpty() && profileSyncsToAccount();
 		if (!canPost && !postingBlockedLogged)
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, clan token set={}, RuneLite account={}",
-				config.enabled(), !clanToken().isEmpty(), sessionManager.getAccountSession() != null);
+			log.info("Posting blocked: enabled={}, clan token set={}, profile synced={}",
+				config.enabled(), !clanToken().isEmpty(), profileSyncsToAccount());
 		}
 		return canPost;
+	}
+
+	// A synced profile needs a RuneLite account login, and it is the sync that carries the task memory along
+	private boolean profileSyncsToAccount()
+	{
+		ConfigProfile profile = configManager.getProfile();
+		return profile != null && profile.isSync();
 	}
 
 	private String clanToken()
@@ -1415,9 +1419,9 @@ public class SlayClanPlugin extends Plugin
 		{
 			warnInChat("Slay Clan: paste your clan token into the plugin settings, otherwise nothing is posted. Run /plugin token in the clan Discord to get one.");
 		}
-		if (sessionManager.getAccountSession() == null)
+		if (!profileSyncsToAccount())
 		{
-			warnInChat("Slay Clan: log in to RuneLite with a RuneLite account, otherwise nothing is posted.");
+			warnInChat("Slay Clan: log in with a RuneLite account and turn on Sync for this profile in the profile panel, otherwise nothing is posted.");
 		}
 		int dropped = pendingPostStore.takeDroppedCount();
 		if (dropped > 0)
