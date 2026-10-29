@@ -5,7 +5,7 @@ The plugin reads its tasks from a JSON file hosted by the clan, for example as a
 ```json
 {
   "clanName": "Slay Clan",
-  "apiUrl": "https://discordbot.slayclan.net/api/v1/posts",
+  "apiUrl": "https://bot.example.com/api/v1/posts",
   "tasks": {
     "Social": [ ... ],
     "PvM": [ ... ]
