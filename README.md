@@ -1,63 +1,64 @@
 # Slay Clan
 
-The Slay Clan plugin posts your completed clan tasks to the Slay Clan Discord automatically. When you finish a task from the clan task sheet, for example a clan-only raid, a speed kill, a new collection log item or a valuable drop, the plugin takes a screenshot and posts it together with the task name, tier and points. The clan staff then approve it as usual.
+Posts your completed Slay Clan tasks to the clan Discord for you. Finish a task from the clan task sheet, like a clan raid, a speed kill, a new collection log item or a valuable drop, and the plugin sends it with a screenshot. Staff approve it as usual.
 
 ## Getting started
 
 ![The plugin's settings panel](docs/images/settings.png)
 
-1. Install **Slay Clan** from the RuneLite Plugin Hub.
-2. Open the plugin settings and paste the config URL from the clan Discord into **Clan config URL**. Ask a clan staff member if you cannot find it.
-3. In the Slay Clan Discord, run `/plugin token`. The bot answers with a token only you can see. Paste it into **Clan token**. The token tells the bot that the posts are yours, so never share it; if it leaks, run `/plugin token` again and the old one stops working. Points go to your main also when you play on an alt.
-4. Turn on **Enable posting** and accept the warning.
-5. In the game settings, turn on **Collection log - New addition notification**. The popup setting does not matter. The plugin reminds you in chat at login when it is off.
-6. Keep RuneLite's built-in **Loot Tracker** plugin enabled. It is on by default and the plugin reads drops from it.
-7. Log in to RuneLite with a **RuneLite account**, using the login button at the top right of the RuneLite window, and turn on **Sync** for your profile in the profile panel. This is separate from your Jagex account and required for posting. The plugin remembers which one-time tasks it has already posted, shared between your main and alts, and only a synced profile carries that memory over to other computers. The clan's bot refuses a one-time task you already have approved, so a duplicate never gives points twice, but the memory keeps the duplicate post from being made at all.
-8. Open your **collection log** once. The plugin then sends your full log to the clan's activity feed, so the members hub knows what you already have, and posts every one-time collection log task you have already completed. New items are sent as you get them.
+1. Install **Slay Clan** from the Plugin Hub.
+2. Paste the config URL from the clan Discord into **Clan config URL**. Ask staff if you cannot find it.
+3. Run `/plugin token` in the Slay Clan Discord and paste the answer into **Clan token**. It proves the posts are yours, so keep it to yourself. If it leaks, run the command again and the old one stops working.
+4. Turn on **Enable posting**.
+5. Log in to RuneLite with a **RuneLite account** (top right of the window) and turn on **Sync** for your profile in the profile panel. The plugin uses it to remember which one-time tasks it already posted, across your main, your alts and other computers.
+6. In the game settings, turn on **Collection log - New addition notification**.
+7. Keep the built-in **Loot Tracker** plugin on. It is on by default.
+8. Open your **collection log** once, so the plugin can post the one-time collection log tasks you already have.
 
-That's it. Tasks and points are managed centrally by the clan, so you never have to update anything yourself.
-
-If you use several RuneLite profiles, fill in the settings in each of them. One-time tasks are remembered per profile.
+Points go to your main when you play on an alt. Tasks and points are managed by the clan, so there is nothing to update yourself. Using several RuneLite profiles? Fill in the settings in each.
 
 ## What gets posted
 
-- **One-time tasks** (Social, PvM, Speed-chaser and Clogging) are posted the first time the plugin sees you complete them.
-- **Repeatable tasks** are posted every time.
-- **Group tasks** such as clan raids only count when everyone in the party is a Slay Clan member. Everyone with the plugin posts their own completion, so the bot can award points per person, and the post names the clan members who were in the team.
-- **Valuable drops** are posted with the item and its Grand Exchange value. The plugin cannot know who you split with, so the clan's bot asks you in its approval channel: pick the others in the splitter list, or press On my own. You are always counted as a splitter yourself. Unlike the form you get from `/activity drop`, this one is not private: everyone in the channel can see it from the start, but only you can answer it, and it becomes the approval once you do. Staff can close a question you never answer.
-- **PvP never counts.** Loot from other players and loot keys are ignored.
-- **Activity feed**: every new collection log item and combat achievement, your combat achievement and collection log progress, and a full list of both when you log in or open your collection log. The clan's bot keeps these for the members hub; they are not clan task posts and give no points by themselves.
-- **Personal bests**: a new personal best is posted with a screenshot. The game only keeps one personal best per boss, so the plugin also posts your fastest kill per team size since installing, and reports your current personal best once per boss, and once per raid each time you log in, so the PB leaderboard can be filled in. The post lists the team size and the clan members who were in your team, so the bot can give each of them their place on the board; nobody outside the clan is ever named. The bot decides what qualifies for the board. For a boss where the game does not say which team size your stored best was set at, the bot asks you in its approval channel with one button per team size. Everyone can see the question, only you can press the buttons.
+- **One-time tasks** (Social, PvM, Speed-chaser, Clogging) the first time you complete them.
+- **Repeatable tasks** every time.
+- **Group tasks** only when everyone in the party is in the clan. Each player with the plugin posts their own, and the post names the clan members in the team.
+- **Valuable drops** with the item and its value. The bot asks you in its approval channel who you split with, or press On my own. Only you can answer.
+- **Personal bests** with a screenshot, plus your fastest kill per team size and your current bests once, so the PB board can be filled in. The bot decides what makes the board, and asks you with buttons when it cannot tell a team size.
+- **Activity**: new collection log items and combat achievements and your overall progress, for the members hub. These give no points on their own.
+
+PvP loot and loot keys never count.
 
 ![A clan task awaiting review in the clan Discord](docs/images/review-post.png)
 
-Each post goes straight to the clan's bot with your clan token, your in-game name, the task details and a screenshot of your whole RuneLite window, including the chat. Nothing else is sent, and only to the clan's own server. The bot answers at once and the plugin tells you in the game chat whether the post was recorded, refused and why, or whether the bot is waiting for you to answer something in Discord.
+Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window, chat included. Nothing else is sent. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
 
 ## What the plugin cannot see
 
-- **Tasks you completed before installing the plugin.** The game only announces a new combat achievement once, and the plugin does not post equipment or thresholds you had already reached. Submit those to the bot manually. Collection log tasks are the exception: the plugin checks every one-time collection log task against your whole collection log when you open it, so a pet, cape or item from before the install is posted on its own the first time you open the log.
-- **Tasks outside the game**, such as clan events, SOTW, BOTW, ROTM, recruiting and Discord boosts. Submit those manually as before.
+- **Tasks done before you installed it**, except collection log tasks, which are checked against your whole log when you open it. Submit the rest by hand.
+- **Tasks outside the game**, like events, SOTW, BOTW, ROTM, recruiting and boosts. Submit those by hand as before.
 
 ## Reporting a bug
 
-When a task you completed was not posted, report it in the clan's bug report channel with the details below. Not in Slay Clan? Open an issue on [GitHub](https://github.com/slay-clan/slay-clan/issues) instead.
+Report it in the clan's bug report channel. Not in Slay Clan? Open an issue on [GitHub](https://github.com/slay-clan/slay-clan/issues). Include:
 
-- **Task:** the name of the task that should have been posted
-- **What happened:** nothing was posted, wrong task, wrong points or posted twice
-- **When:** date and approximate time
-- **Screenshot:** the chat box showing the game messages from that moment. The chat history keeps them, so scroll up if needed
-- **Raid or boss info:** team size, mode and who was in the party
-- **Log:** the lines containing `SlayClan` from `%USERPROFILE%\.runelite\logs\client.log` around that time
+- **Task** that should have been posted
+- **What happened**: nothing posted, wrong task, wrong points or posted twice
+- **When**: date and rough time
+- **Screenshot** of the chat from that moment (scroll up if needed)
+- **Raid or boss**: team size, mode and who was there
+- **Log**: the `SlayClan` lines from `%USERPROFILE%\.runelite\logs\client.log` around that time
 
-The log says why the plugin skipped a task: posting blocked by a missing setting, config not loaded, not in the clan, an outsider in the party, a time or kill count that did not meet the task, a collection log item outside every task, or what happened to a Yama contract. It also records game messages it did not recognise. Submit the task manually to the bot in the meantime.
+The log says why a task was skipped. Submit the task by hand in the meantime.
 
-If the clan's bot could not be reached, the post is kept and sent again at your next login or within 10 minutes, without the screenshot. Posts older than a week are dropped, and the plugin tells you at login how many were dropped so you can submit them manually. It also warns you in red at login when the clan config could not be loaded or when the Loot Tracker plugin is disabled.
+If the bot cannot be reached, the post is kept and sent again later without the screenshot. Posts older than a week are dropped, and the plugin tells you at login so you can submit them by hand.
 
 ## For clan staff
 
-The tasks, points and the address of the clan's bot live in a JSON file that the clan hosts, so they can be changed without updating the plugin. Players pick up changes within about 10 minutes. Nothing is hard-wired to Slay Clan: the clan name, the bot's address and every task come from that file, so another clan can run the plugin with a file of its own and a bot of its own. See [docs/config.md](docs/config.md) for every field and trigger, and [docs/example-config.json](docs/example-config.json) for a full example. The same file has an `ignoredContent` list: a boss or raid named there gives no kill, raid, contract or personal best post, which is how the clan switches new content off within minutes if its game messages turn out to post things they should not. Combat achievement, collection log and delve tasks are not affected by the list.
+Tasks, points and the bot's address live in a JSON file the clan hosts, so they change without a plugin update. Players pick changes up within about 10 minutes. Nothing is tied to Slay Clan, so another clan can run the plugin with its own file and bot. See [docs/config.md](docs/config.md) and [docs/example-config.json](docs/example-config.json).
 
-The config file holds no secrets. Each member posts with a personal token from `/plugin token`; staff can revoke one with `/plugin revoke`, and the member gets a new one by running `/plugin token` again.
+The file's `ignoredContent` list switches a boss or raid off within minutes if its game messages ever post the wrong thing.
+
+The file holds no secrets. Staff revoke a member's token with `/plugin revoke`.
 
 ## Credits
 
