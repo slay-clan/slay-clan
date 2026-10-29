@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +42,7 @@ public class BotClient
 	private static final long MAX_RETRY_MILLIS = 60_000;
 	private static final long RESPONSE_TIMEOUT_SECONDS = 60;
 	private static final int UNAUTHORIZED = 401;
+	private static final int NOT_FOUND = 404;
 	private static final int TOO_LARGE = 413;
 	private static final int TOO_MANY = 429;
 	private static final String TOKEN_REJECTED = "The clan bot did not accept your clan token. Run /plugin token in the clan Discord and paste the new token into the plugin settings.";
@@ -128,12 +130,12 @@ public class BotClient
 			{
 				try (response)
 				{
-					if (response.code() == TOO_MANY && retryOnRateLimit)
+					if (rateLimitedWithRetryLeft(response, retryOnRateLimit))
 					{
 						scheduleRetry(target, payload, png, result, retryAfterMillis(response));
 						return;
 					}
-					if (response.code() == TOO_LARGE && png != null)
+					if (screenshotTooLarge(response, png))
 					{
 						log.info("The screenshot was too large for the clan bot, sending the post without it");
 						post(target, payload, null, retryOnRateLimit, result);
@@ -154,9 +156,9 @@ public class BotClient
 		}
 		if (response.code() == UNAUTHORIZED)
 		{
-			return BotReply.undelivered(TOKEN_REJECTED);
+			return BotReply.tokenRejected(TOKEN_REJECTED);
 		}
-		if (response.code() >= 500 || response.code() == TOO_MANY)
+		if (botCouldNotTakeIt(response))
 		{
 			log.warn("The clan bot answered {} to a {} post", response.code(), payload.getKind());
 			return BotReply.undelivered(null);
@@ -165,18 +167,36 @@ public class BotClient
 		return BotReply.delivered(answer == null ? "The clan bot rejected a post." : answer.getMessage());
 	}
 
+	private static boolean rateLimitedWithRetryLeft(Response response, boolean retryOnRateLimit)
+	{
+		return response.code() == TOO_MANY && retryOnRateLimit;
+	}
+
+	private static boolean screenshotTooLarge(Response response, byte[] png)
+	{
+		return response.code() == TOO_LARGE && png != null;
+	}
+
+	// A 404 is a wrong address in the clan config, which staff fix there; the post itself is fine and waits
+	private static boolean botCouldNotTakeIt(Response response)
+	{
+		return response.code() >= 500 || response.code() == TOO_MANY || response.code() == NOT_FOUND;
+	}
+
 	// Bookkeeping posts are sent quietly; only what the member did right now, or anything that went wrong, is said in chat
 	private static String chatLine(PostPayload payload, Answer answer)
 	{
-		if (answer == null || STATUS_DUPLICATE.equals(answer.getStatus()))
-		{
-			return null;
-		}
-		if (STATUS_RECORDED.equals(answer.getStatus()) && payload.isReceiptQuiet())
-		{
-			return null;
-		}
-		return answer.getMessage();
+		return nothingToSay(answer) || quietReceipt(payload, answer) ? null : answer.getMessage();
+	}
+
+	private static boolean nothingToSay(Answer answer)
+	{
+		return answer == null || STATUS_DUPLICATE.equals(answer.getStatus());
+	}
+
+	private static boolean quietReceipt(PostPayload payload, Answer answer)
+	{
+		return STATUS_RECORDED.equals(answer.getStatus()) && payload.isReceiptQuiet();
 	}
 
 	private Answer answerOf(Response response)
@@ -193,7 +213,17 @@ public class BotClient
 
 	private void scheduleRetry(BotTarget target, PostPayload payload, byte[] png, CompletableFuture<BotReply> result, long delayMillis)
 	{
-		ScheduledFuture<?> retry = executor.schedule(() -> post(target, payload, png, false, result), delayMillis, TimeUnit.MILLISECONDS);
+		ScheduledFuture<?> retry;
+		try
+		{
+			retry = executor.schedule(() -> post(target, payload, png, false, result), delayMillis, TimeUnit.MILLISECONDS);
+		}
+		catch (RejectedExecutionException e)
+		{
+			// The client is shutting down; the post is kept rather than lost
+			result.complete(BotReply.undelivered(null));
+			return;
+		}
 		scheduledRetries.put(retry, result);
 		result.whenComplete((reply, error) -> scheduledRetries.remove(retry));
 	}

@@ -190,6 +190,22 @@ public class RemoteConfigParserTest
 	}
 
 	@Test
+	public void rejectsAnApiThatOnlyLooksLocalInFrontOfTheUserinfoSeparator()
+	{
+		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://localhost:@evil.example/api/v1/posts");
+
+		assertFalse(parser.parse(json).isPresent());
+	}
+
+	@Test
+	public void rejectsAnApiThatIsNotAnAddress()
+	{
+		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "https://");
+
+		assertFalse(parser.parse(json).isPresent());
+	}
+
+	@Test
 	public void acceptsAPlainHttpApiOnThisComputerForTesting()
 	{
 		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://127.0.0.1:3000/api/v1/posts");

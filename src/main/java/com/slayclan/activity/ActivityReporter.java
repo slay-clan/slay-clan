@@ -3,21 +3,23 @@ package com.slayclan.activity;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Sends activity posts. Events and PBs are kept for retry when the bot cannot take them. Status and snapshots
- * are only sent when their content differs from what the bot last accepted for the account, and are not queued,
- * since the next login or log opening sends a fresh one when needed. What the bot says about a post goes to the
- * chat.
+ * Sends posts to the bot and settles what comes back: the answer goes to the chat, a post the bot could not
+ * take is kept for retry. Status and snapshots are only sent when their content differs from what the bot
+ * last accepted for the account, and are not kept, since the next login or log opening sends a fresh one when
+ * needed.
  */
 @Slf4j
 public class ActivityReporter
@@ -26,30 +28,64 @@ public class ActivityReporter
 	private final BotClient botClient;
 	private final PendingPostStore pendingPostStore;
 	private final DeliveredSnapshots deliveredSnapshots;
-	private final Consumer<String> chat;
+	private final Consumer<BotReply> tell;
 	// A second check can run before the bot has answered the first send, so the fingerprint last sent per kind and
 	// account counts as delivered meanwhile, and only that one is remembered when the bot answers, however the
 	// answers are ordered
 	private final Map<String, String> lastSent = new ConcurrentHashMap<>();
 
 	public ActivityReporter(ActivityFormatter formatter, BotClient botClient, PendingPostStore pendingPostStore,
-		DeliveredSnapshots deliveredSnapshots, Consumer<String> chat)
+		DeliveredSnapshots deliveredSnapshots, Consumer<BotReply> tell)
 	{
 		this.formatter = formatter;
 		this.botClient = botClient;
 		this.pendingPostStore = pendingPostStore;
 		this.deliveredSnapshots = deliveredSnapshots;
-		this.chat = chat;
+		this.tell = tell;
+	}
+
+	/**
+	 * Sends a post the member just earned and keeps it when the bot could not take it.
+	 */
+	public CompletableFuture<Void> send(BotTarget target, PostPayload payload, byte[] png)
+	{
+		return botClient.send(target, payload, png).thenAccept(reply -> settle(reply, payload));
+	}
+
+	/**
+	 * Sends kept posts one at a time, dropping each the bot took. Stops at a rejected token, since every post
+	 * after it would be refused the same way and nag the member once per post.
+	 */
+	public CompletableFuture<Void> retry(BotTarget target, List<PendingPost> pending)
+	{
+		if (pending.isEmpty())
+		{
+			return CompletableFuture.completedFuture(null);
+		}
+		PendingPost first = pending.get(0);
+		return botClient.send(target, first.getPayload(), null).thenCompose(reply ->
+		{
+			tell.accept(reply);
+			if (reply.isDelivered())
+			{
+				pendingPostStore.remove(first);
+			}
+			if (reply.isTokenRejected())
+			{
+				return CompletableFuture.completedFuture(null);
+			}
+			return retry(target, pending.subList(1, pending.size()));
+		});
 	}
 
 	public void reportClog(BotTarget target, String account, String item, int itemId, int quantity, int logSlots)
 	{
-		sendOrQueue(target, formatter.clogEvent(account, item, itemId, quantity, logSlots, Instant.now()));
+		send(target, formatter.clogEvent(account, item, itemId, quantity, logSlots, Instant.now()), null);
 	}
 
 	public void reportCa(BotTarget target, String account, String task, int taskId, String tier)
 	{
-		sendOrQueue(target, formatter.caEvent(account, task, taskId, tier, Instant.now()));
+		send(target, formatter.caEvent(account, task, taskId, tier, Instant.now()), null);
 	}
 
 	public void reportStatusIfChanged(BotTarget target, String account, long accountHash, CombatAchievementStatus ca,
@@ -75,11 +111,6 @@ public class ActivityReporter
 		sendIfChanged(target, PostKind.PB_SNAPSHOT, accountHash, formatter.pbSnapshot(account, accountHash, bests, Instant.now()));
 	}
 
-	public void reportPersonalBest(BotTarget target, PostPayload payload, byte[] png)
-	{
-		botClient.send(target, payload, png).thenAccept(reply -> settle(reply, payload));
-	}
-
 	private void sendIfChanged(BotTarget target, PostKind kind, long accountHash, ActivityFormatter.Snapshot snapshot)
 	{
 		sendIfChanged(target, kind, accountHash, snapshot.getFingerprint(), snapshot.getPayload());
@@ -96,7 +127,7 @@ public class ActivityReporter
 		lastSent.put(key, fingerprint);
 		botClient.send(target, payload, null).thenAccept(reply ->
 		{
-			tell(reply);
+			tell.accept(reply);
 			if (!reply.isDelivered())
 			{
 				log.info("{} not delivered, it is sent again next time", kind);
@@ -114,25 +145,13 @@ public class ActivityReporter
 		return deliveredSnapshots.isDelivered(kind, accountHash, fingerprint) || fingerprint.equals(lastSent.get(key));
 	}
 
-	private void sendOrQueue(BotTarget target, PostPayload payload)
-	{
-		botClient.send(target, payload, null).thenAccept(reply -> settle(reply, payload));
-	}
-
 	private void settle(BotReply reply, PostPayload payload)
 	{
-		tell(reply);
+		tell.accept(reply);
 		if (!reply.isDelivered())
 		{
+			log.info("Keeping an undelivered {} post for retry", payload.getKind());
 			pendingPostStore.add(payload, Instant.now());
-		}
-	}
-
-	private void tell(BotReply reply)
-	{
-		if (reply.getMessage() != null)
-		{
-			chat.accept(reply.getMessage());
 		}
 	}
 }

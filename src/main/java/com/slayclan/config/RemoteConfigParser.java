@@ -20,15 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RemoteConfigParser
 {
-	// Posts carry the member's token, so they only go over TLS, except to a bot running on the same computer
-	private static final List<String> ALLOWED_API_PREFIXES = List.of(
-		"https://",
-		"http://localhost:",
-		"http://localhost/",
-		"http://127.0.0.1:",
-		"http://127.0.0.1/"
-	);
-
 	private final Gson gson;
 
 	public RemoteConfigParser(Gson gson)
@@ -48,11 +39,12 @@ public class RemoteConfigParser
 			return Optional.empty();
 		}
 
-		if (config == null || !hasRequiredFields(config) || !hasAllowedApiUrl(config) || !hasUniqueIds(config.getTasks()))
-		{
-			return Optional.empty();
-		}
-		return Optional.of(config);
+		return isUsable(config) ? Optional.of(config) : Optional.empty();
+	}
+
+	private static boolean isUsable(RemoteConfig config)
+	{
+		return config != null && hasRequiredFields(config) && hasSecretSafeApiUrl(config) && hasUniqueIds(config.getTasks());
 	}
 
 	private static boolean hasRequiredFields(RemoteConfig config)
@@ -60,10 +52,10 @@ public class RemoteConfigParser
 		return !isBlank(config.getClanName()) && config.getTasks() != null;
 	}
 
-	private static boolean hasAllowedApiUrl(RemoteConfig config)
+	// Posts carry the member's token
+	private static boolean hasSecretSafeApiUrl(RemoteConfig config)
 	{
-		String url = config.getApiUrl();
-		if (url != null && ALLOWED_API_PREFIXES.stream().anyMatch(url::startsWith))
+		if (SecretSafeUrl.accepts(config.getApiUrl()))
 		{
 			return true;
 		}

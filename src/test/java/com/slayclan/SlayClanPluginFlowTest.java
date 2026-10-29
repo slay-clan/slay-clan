@@ -938,6 +938,22 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void aRejectedTokenIsSaidOncePerLoginHoweverManyPostsItStops()
+	{
+		tasks();
+		when(botClient.send(any(), any(), (byte[]) any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.tokenRejected("Token not accepted.")));
+
+		login();
+		ticks(6);
+		chat("New item added to your collection log: <col=ff0000>Vorki</col>");
+
+		verify(client, times(1)).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			org.mockito.ArgumentMatchers.contains("Token not accepted."), isNull());
+		verify(pendingPostStore).add(any(), any());
+	}
+
+	@Test
 	public void saysInChatWhatTheBotAnsweredAboutAPost()
 	{
 		tasks(task("any-raid", "RAID:*", null, 0, false));

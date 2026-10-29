@@ -4,11 +4,13 @@ import com.google.gson.Gson;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import static org.junit.Assert.assertEquals;
 import org.junit.Before;
@@ -33,7 +35,7 @@ public class ActivityReporterTest
 	private BotClient botClient;
 	private PendingPostStore pendingPostStore;
 	private DeliveredSnapshots deliveredSnapshots;
-	private final List<String> chat = new ArrayList<>();
+	private final List<BotReply> told = new ArrayList<>();
 	private ActivityReporter reporter;
 
 	@Before
@@ -43,7 +45,41 @@ public class ActivityReporterTest
 		pendingPostStore = mock(PendingPostStore.class);
 		deliveredSnapshots = mock(DeliveredSnapshots.class);
 		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
-		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, chat::add);
+		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, told::add);
+	}
+
+	@Test
+	public void keptPostsAreSentOneAtATimeAndDroppedOnceTheBotTookThem()
+	{
+		PendingPost first = new PendingPost("2026-10-10T18:00:00Z", payload("Old post"));
+		PendingPost second = new PendingPost("2026-10-10T18:00:01Z", payload("Older post"));
+		when(botClient.send(any(), any(), any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.delivered(null)));
+
+		reporter.retry(TARGET, List.of(first, second));
+
+		verify(botClient, times(2)).send(eq(TARGET), any(), isNull());
+		verify(pendingPostStore, never()).remove(first);
+		verify(pendingPostStore).remove(second);
+	}
+
+	@Test
+	public void aRejectedTokenStopsTheRetryRoundAfterTheFirstPost()
+	{
+		PendingPost first = new PendingPost("2026-10-10T18:00:00Z", payload("Old post"));
+		PendingPost second = new PendingPost("2026-10-10T18:00:01Z", payload("Older post"));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.tokenRejected("Token not accepted.")));
+
+		reporter.retry(TARGET, List.of(first, second));
+
+		verify(botClient, times(1)).send(eq(TARGET), any(), isNull());
+		verify(pendingPostStore, never()).remove(any());
+		assertEquals(1, told.size());
+	}
+
+	private static PostPayload payload(String task)
+	{
+		return new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false);
 	}
 
 	@Test
@@ -75,7 +111,7 @@ public class ActivityReporterTest
 		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
 			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
 
-		reporter.reportPersonalBest(TARGET, payload, null);
+		reporter.send(TARGET, payload, null);
 
 		verify(pendingPostStore).add(eq(payload), any());
 	}
@@ -88,9 +124,9 @@ public class ActivityReporterTest
 		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
 			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
 
-		reporter.reportPersonalBest(TARGET, payload, null);
+		reporter.send(TARGET, payload, null);
 
-		assertEquals(List.of("Not recorded: slower than your time on the board."), chat);
+		assertEquals("Not recorded: slower than your time on the board.", told.get(0).getMessage());
 		verify(pendingPostStore, never()).add(any(), any());
 	}
 

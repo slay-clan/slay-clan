@@ -19,7 +19,6 @@ import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.MessageFormatter;
-import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
@@ -138,6 +137,9 @@ public class SlayClanPlugin extends Plugin
 		"count is", "collection log", "combat task", "duration", "completion time", "delve level", "funny feeling", "backpack");
 	// The varbit combines two game settings: 1 = "New addition notification" (chat), 2 = "New addition popup"
 	private static final int COLLECTION_LOG_CHAT_BIT = 1;
+	private static final Set<String> POSTING_KEYS = Set.of(
+		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY);
+	private static final String RETIRED_DISCORD_NAME_KEY = "discordName";
 
 	@Inject
 	private Client client;
@@ -227,6 +229,8 @@ public class SlayClanPlugin extends Plugin
 	private PersonalBestReader personalBestReader;
 	// Logged once per login, as every event would otherwise repeat it
 	private boolean postingBlockedLogged;
+	// Said once per login and once per token change, as every post would otherwise repeat it
+	private boolean tokenWarningPending;
 	private boolean clogSettingCheckPending;
 	private boolean setupWarningPending;
 	private boolean thresholdCheckPending;
@@ -243,7 +247,8 @@ public class SlayClanPlugin extends Plugin
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
-		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this::sayInChat);
+		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this::tell);
+		forgetTheRetiredDiscordNameSetting();
 		refreshTask = executor.scheduleAtFixedRate(
 			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), 0, CONFIG_REFRESH_MINUTES, TimeUnit.MINUTES);
 		if (client.getGameState() == GameState.LOGGED_IN)
@@ -287,8 +292,7 @@ public class SlayClanPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (!SlayClanConfig.GROUP.equals(event.getGroup())
-			|| !(SlayClanConfig.CONFIG_URL_KEY.equals(event.getKey()) || SlayClanConfig.ENABLED_KEY.equals(event.getKey())))
+		if (!changesWherePostsGo(event))
 		{
 			return;
 		}
@@ -296,7 +300,14 @@ public class SlayClanPlugin extends Plugin
 		{
 			configChangeRefresh.cancel(false);
 		}
-		configChangeRefresh = executor.schedule(this::refreshRemoteConfig, CONFIG_CHANGE_DELAY_SECONDS, TimeUnit.SECONDS);
+		tokenWarningPending = true;
+		configChangeRefresh = executor.schedule(
+			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), CONFIG_CHANGE_DELAY_SECONDS, TimeUnit.SECONDS);
+	}
+
+	private static boolean changesWherePostsGo(ConfigChanged event)
+	{
+		return SlayClanConfig.GROUP.equals(event.getGroup()) && POSTING_KEYS.contains(event.getKey());
 	}
 
 	/**
@@ -334,6 +345,7 @@ public class SlayClanPlugin extends Plugin
 	private void scheduleLoginChecks()
 	{
 		postingBlockedLogged = false;
+		tokenWarningPending = true;
 		statusCheckPending = true;
 		caSnapshotPending = true;
 		pbSnapshotPending = true;
@@ -694,7 +706,7 @@ public class SlayClanPlugin extends Plugin
 	private void reportStoredPersonalBests()
 	{
 		BotTarget target = target();
-		if (target == null || !pbSnapshotDue())
+		if (!pbSnapshotDue(target))
 		{
 			return;
 		}
@@ -703,9 +715,9 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	// RuneLite's stored personal bests live in the game profile, which is only known once RuneLite has resolved it
-	private boolean pbSnapshotDue()
+	private boolean pbSnapshotDue(BotTarget target)
 	{
-		return pbSnapshotPending && configManager.getRSProfileKey() != null;
+		return target != null && pbSnapshotPending && configManager.getRSProfileKey() != null;
 	}
 
 	/**
@@ -833,7 +845,7 @@ public class SlayClanPlugin extends Plugin
 			if (gameBestStillUnreported(accountHash, boss, best))
 			{
 				scaleBestStore.markGameBestReported(accountHash, boss);
-				activityReporter.reportPersonalBest(target,
+				activityReporter.send(target,
 					activityFormatter.currentBossBest(account(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now()), null);
 			}
 		}
@@ -855,10 +867,10 @@ public class SlayClanPlugin extends Plugin
 		PostPayload payload = activityFormatter.personalBest(account(), boss, time, kind, teamSize, party, claim, Instant.now());
 		if (claim == PersonalBestClaim.CURRENT)
 		{
-			activityReporter.reportPersonalBest(target, payload, null);
+			activityReporter.send(target, payload, null);
 			return;
 		}
-		screenshotService.capture(png -> activityReporter.reportPersonalBest(target, payload, png));
+		screenshotService.capture(png -> activityReporter.send(target, payload, png));
 	}
 
 	/**
@@ -1331,21 +1343,7 @@ public class SlayClanPlugin extends Plugin
 
 	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
 	{
-		screenshotService.capture(png -> posts.forEach(payload ->
-			botClient.send(target, payload, png).thenAccept(reply -> settle(reply, payload))));
-	}
-
-	private void settle(BotReply reply, PostPayload payload)
-	{
-		if (reply.getMessage() != null)
-		{
-			sayInChat(reply.getMessage());
-		}
-		if (!reply.isDelivered())
-		{
-			log.info("Keeping an undelivered {} post for retry", payload.getKind());
-			pendingPostStore.add(payload, Instant.now());
-		}
+		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, payload, png)));
 	}
 
 	/**
@@ -1361,23 +1359,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		try
 		{
-			BotTarget target = target(remoteConfig);
-			List<CompletableFuture<Void>> deliveries = new ArrayList<>();
-			for (PendingPost pending : pendingPostStore.load(Instant.now()))
-			{
-				deliveries.add(botClient.send(target, pending.getPayload(), null).thenAccept(reply ->
-				{
-					if (reply.getMessage() != null)
-					{
-						sayInChat(reply.getMessage());
-					}
-					if (reply.isDelivered())
-					{
-						pendingPostStore.remove(pending);
-					}
-				}));
-			}
-			CompletableFuture.allOf(deliveries.toArray(new CompletableFuture[0]))
+			activityReporter.retry(target(remoteConfig), pendingPostStore.load(Instant.now()))
 				.whenComplete((ignored, error) -> retryInProgress.set(false));
 		}
 		catch (RuntimeException e)
@@ -1472,9 +1454,25 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	// The bot answers on an HTTP thread, and the chat is only written from the client thread
-	private void sayInChat(String message)
+	private void tell(BotReply reply)
 	{
-		clientThread.invoke(() -> warnInChat("Slay Clan: " + message));
+		if (reply.getMessage() == null || tokenWarningAlreadySaid(reply))
+		{
+			return;
+		}
+		tokenWarningPending = tokenWarningPending && !reply.isTokenRejected();
+		clientThread.invoke(() -> warnInChat("Slay Clan: " + reply.getMessage()));
+	}
+
+	private boolean tokenWarningAlreadySaid(BotReply reply)
+	{
+		return reply.isTokenRejected() && !tokenWarningPending;
+	}
+
+	// The setting was replaced by the clan token; the old value would otherwise sit in every profile for good
+	private void forgetTheRetiredDiscordNameSetting()
+	{
+		configManager.unsetConfiguration(SlayClanConfig.GROUP, RETIRED_DISCORD_NAME_KEY);
 	}
 
 	@Provides

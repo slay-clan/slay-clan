@@ -1,5 +1,6 @@
 package com.slayclan.discord;
 
+import lombok.ToString;
 import lombok.Value;
 
 /**
@@ -10,5 +11,7 @@ import lombok.Value;
 public class BotTarget
 {
 	String apiUrl;
+	// Keeps the token out of every log line and assertion message that prints the target
+	@ToString.Exclude
 	String token;
 }

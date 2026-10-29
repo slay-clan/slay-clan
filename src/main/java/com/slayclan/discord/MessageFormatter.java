@@ -10,8 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Builds posts with the same fields as the clan bot's own submissions: Task, Tier and Points for tasks, and Item,
- * Value in M and Points for drops.
+ * Builds task and drop posts. Field names are the bot's contract.
  */
 public class MessageFormatter
 {

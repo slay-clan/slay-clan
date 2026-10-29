@@ -7,7 +7,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +25,6 @@ public class RemoteConfigService
 {
 	// A real clan config is a few tens of kB; anything bigger is a wrong URL or a hostile host
 	static final long MAX_BODY_BYTES = 1_000_000;
-	private static final Pattern LOOPBACK_IPV4 = Pattern.compile("127(\\.\\d{1,3}){3}");
 
 	private final OkHttpClient httpClient;
 	private final RemoteConfigParser parser;
@@ -72,7 +70,7 @@ public class RemoteConfigService
 			return CompletableFuture.completedFuture(null);
 		}
 		HttpUrl httpUrl = HttpUrl.parse(url.trim());
-		if (httpUrl == null || !isAllowed(httpUrl))
+		if (httpUrl == null || !SecretSafeUrl.accepts(httpUrl))
 		{
 			log.info("Clan config URL is not a valid https URL");
 			setCurrent(null, null);
@@ -103,7 +101,7 @@ public class RemoteConfigService
 						fail(url, generation);
 						return;
 					}
-					if (!isAllowed(response.request().url()))
+					if (!SecretSafeUrl.accepts(response.request().url()))
 					{
 						log.info("Clan config URL redirected to a plain http URL, ignoring it");
 						fail(url, generation);
@@ -143,13 +141,6 @@ public class RemoteConfigService
 			}
 		});
 		return done;
-	}
-
-	// Plain http is only safe where nothing can sit in between, which lets a local test server serve the config
-	private static boolean isAllowed(HttpUrl url)
-	{
-		String host = url.host();
-		return url.isHttps() || "localhost".equals(host) || LOOPBACK_IPV4.matcher(host).matches() || "::1".equals(host);
 	}
 
 	private synchronized void fail(String url, long generation)

@@ -127,7 +127,19 @@ public class BotClientTest
 		BotReply reply = send(task, null);
 
 		assertFalse(reply.isDelivered());
+		assertTrue(reply.isTokenRejected());
 		assertTrue(reply.getMessage().contains("/plugin token"));
+	}
+
+	@Test
+	public void keepsThePostQuietlyWhenTheAddressIsWrong() throws Exception
+	{
+		server.enqueue(new MockResponse().setResponseCode(404));
+
+		BotReply reply = send(task, null);
+
+		assertFalse(reply.isDelivered());
+		assertNull(reply.getMessage());
 	}
 
 	@Test
@@ -190,7 +202,7 @@ public class BotClientTest
 	}
 
 	@Test
-	public void aPostTheBotCannotReadIsDoneAndSaidInChat() throws Exception
+	public void aPostTheBotCannotReadIsNotKeptAndItsReasonIsSaidInChat() throws Exception
 	{
 		server.enqueue(json(400, "{\"status\":\"error\",\"message\":\"The nonce must be 16 hex characters.\"}"));
 
