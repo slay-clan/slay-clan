@@ -29,6 +29,8 @@ If you use several RuneLite profiles, fill in the settings in each of them. One-
 - **Activity feed**: every new collection log item and combat achievement, your combat achievement and collection log progress, and a full list of both when you log in or open your collection log. The clan's bot keeps these for the members hub; they are not clan task posts and give no points by themselves.
 - **Personal bests**: a new personal best is posted with a screenshot. The game only keeps one personal best per boss, so the plugin also posts your fastest kill per team size since installing, and reports your current personal best once per boss, and once per raid each time you log in, so the PB leaderboard can be filled in. The post lists the team size and the clan members who were in your team, so the bot can give each of them their place on the board; nobody outside the clan is ever named. The bot decides what qualifies for the board. For a boss where the game does not say which team size your stored best was set at, the bot asks you in its approval channel with one button per team size. Everyone can see the question, only you can press the buttons.
 
+![A clan task awaiting review in the clan Discord](docs/images/review-post.png)
+
 Each post goes straight to the clan's bot with your clan token, your in-game name, the task details and a screenshot of your whole RuneLite window, including the chat. Nothing else is sent, and only to the clan's own server. The bot answers at once and the plugin tells you in the game chat whether the post was recorded, refused and why, or whether the bot is waiting for you to answer something in Discord.
 
 ## What the plugin cannot see
