@@ -45,6 +45,7 @@ public class BotClient
 	private static final int NOT_FOUND = 404;
 	private static final int TOO_LARGE = 413;
 	private static final int TOO_MANY = 429;
+	private static final String SCREENSHOT_TOO_LARGE = "Not sent: the screenshot was too large for the clan bot. Submit it by hand in Discord.";
 	private static final String TOKEN_REJECTED = "The clan bot did not accept your clan token. Run /plugin token in the clan Discord and paste the new token into the plugin settings.";
 
 	private final OkHttpClient httpClient;
@@ -135,12 +136,6 @@ public class BotClient
 						scheduleRetry(target, payload, png, result, retryAfterMillis(response));
 						return;
 					}
-					if (screenshotTooLarge(response, png))
-					{
-						log.info("The screenshot was too large for the clan bot, sending the post without it");
-						post(target, payload, null, retryOnRateLimit, result);
-						return;
-					}
 					result.complete(replyTo(payload, response));
 				}
 			}
@@ -158,6 +153,11 @@ public class BotClient
 		{
 			return BotReply.tokenRejected(TOKEN_REJECTED);
 		}
+		// A post without its screenshot would be unreviewable, so it is dropped with a clear word instead of resent
+		if (response.code() == TOO_LARGE)
+		{
+			return BotReply.delivered(SCREENSHOT_TOO_LARGE);
+		}
 		if (botCouldNotTakeIt(response))
 		{
 			log.warn("The clan bot answered {} to a {} post", response.code(), payload.getKind());
@@ -170,11 +170,6 @@ public class BotClient
 	private static boolean rateLimitedWithRetryLeft(Response response, boolean retryOnRateLimit)
 	{
 		return response.code() == TOO_MANY && retryOnRateLimit;
-	}
-
-	private static boolean screenshotTooLarge(Response response, byte[] png)
-	{
-		return response.code() == TOO_LARGE && png != null;
 	}
 
 	// A 404 is a wrong address in the clan config, which staff fix there; the post itself is fine and waits

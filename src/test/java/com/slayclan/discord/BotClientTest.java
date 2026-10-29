@@ -143,15 +143,15 @@ public class BotClientTest
 	}
 
 	@Test
-	public void sendsAgainWithoutTheScreenshotWhenItIsTooLarge() throws Exception
+	public void dropsThePostAndSaysSoWhenTheScreenshotIsTooLarge() throws Exception
 	{
 		server.enqueue(json(413, "{\"status\":\"error\",\"message\":\"The post is too large.\"}"));
-		server.enqueue(recorded());
 
-		assertTrue(send(task, new byte[]{1, 2, 3}).isDelivered());
-		assertEquals(2, server.getRequestCount());
-		server.takeRequest();
-		assertFalse(server.takeRequest().getBody().readUtf8().contains("filename="));
+		BotReply reply = send(task, new byte[]{1, 2, 3});
+
+		assertTrue(reply.isDelivered());
+		assertTrue(reply.getMessage().contains("too large"));
+		assertEquals(1, server.getRequestCount());
 	}
 
 	@Test
