@@ -40,7 +40,7 @@ Each post goes straight to the clan's bot with your clan token, your in-game nam
 
 ## Reporting a bug
 
-When a task you completed was not posted, report it in the clan's bug report channel with:
+When a task you completed was not posted, report it in the clan's bug report channel with the details below. Not in Slay Clan? Open an issue on [GitHub](https://github.com/slay-clan/slay-clan/issues) instead.
 
 - **Task:** the name of the task that should have been posted
 - **What happened:** nothing was posted, wrong task, wrong points or posted twice
