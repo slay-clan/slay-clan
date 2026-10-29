@@ -13,6 +13,7 @@ public interface SlayClanConfig extends Config
 	String ENABLED_KEY = "enabled";
 	String CONFIG_URL_KEY = "configUrl";
 	String CLAN_TOKEN_KEY = "clanToken";
+	String BOT_URL_KEY = "botUrl";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
@@ -38,11 +39,22 @@ public interface SlayClanConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = BOT_URL_KEY,
+		name = "Clan bot URL",
+		description = "Where your clan's bot receives posts, provided by your clan. Must be https",
+		position = 2
+	)
+	default String botUrl()
+	{
+		return "";
+	}
+
+	@ConfigItem(
 		keyName = CLAN_TOKEN_KEY,
 		name = "Clan token",
 		description = "Your personal token from the clan Discord: run /plugin token there and paste the answer here. It tells the clan's bot that the posts are yours",
 		secret = true,
-		position = 2
+		position = 3
 	)
 	default String clanToken()
 	{

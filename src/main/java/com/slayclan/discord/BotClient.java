@@ -2,7 +2,10 @@ package com.slayclan.discord;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import com.slayclan.config.SecretSafeUrl;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +49,8 @@ public class BotClient
 	private static final int TOO_LARGE = 413;
 	private static final int TOO_MANY = 429;
 	private static final String SCREENSHOT_TOO_LARGE = "Not sent: the screenshot was too large for the clan bot. Submit it by hand in Discord.";
+	private static final String WRONG_ADDRESS = "The Clan bot URL in the plugin settings does not lead to the clan bot. Check it against the one in the clan Discord. Your posts are kept until it works.";
+	private static final String UNREACHABLE = "The clan bot could not be reached. Check the Clan bot URL in the plugin settings; if it is right, the bot may be down. Your posts are kept.";
 	private static final String TOKEN_REJECTED = "The clan bot did not accept your clan token. Run /plugin token in the clan Discord and paste the new token into the plugin settings.";
 
 	private final OkHttpClient httpClient;
@@ -64,8 +69,13 @@ public class BotClient
 	public BotClient(OkHttpClient httpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		// The bot writes the sheet and posts the review message before it answers, and handles posts one at a
-		// time, so a login burst takes well over OkHttp's ten second default
-		this.httpClient = httpClient.newBuilder().readTimeout(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS).build();
+		// time, so a login burst takes well over OkHttp's ten second default. Redirects are not followed, since
+		// a post may only go to the address the member set, never to one a response names
+		this.httpClient = httpClient.newBuilder()
+			.readTimeout(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+			.followRedirects(false)
+			.followSslRedirects(false)
+			.build();
 		this.gson = gson;
 		this.executor = executor;
 	}
@@ -112,8 +122,14 @@ public class BotClient
 
 	private void post(BotTarget target, PostPayload payload, byte[] png, boolean retryOnRateLimit, CompletableFuture<BotReply> result)
 	{
+		// Checked here, where the data leaves, as well as before posting: the setting can change in between
+		if (!SecretSafeUrl.accepts(target.getBotUrl()))
+		{
+			result.complete(BotReply.blocked(BotReply.Blocker.WRONG_ADDRESS, WRONG_ADDRESS));
+			return;
+		}
 		Request request = new Request.Builder()
-			.url(target.getApiUrl())
+			.url(target.getBotUrl())
 			.header("Authorization", "Bearer " + target.getToken())
 			.post(buildBody(payload, png))
 			.build();
@@ -123,7 +139,7 @@ public class BotClient
 			public void onFailure(Call call, IOException e)
 			{
 				log.warn("Could not reach the clan bot", e);
-				result.complete(BotReply.undelivered(null));
+				result.complete(noAnswer(e));
 			}
 
 			@Override
@@ -151,7 +167,12 @@ public class BotClient
 		}
 		if (response.code() == UNAUTHORIZED)
 		{
-			return BotReply.tokenRejected(TOKEN_REJECTED);
+			return BotReply.blocked(BotReply.Blocker.TOKEN_REJECTED, TOKEN_REJECTED);
+		}
+		if (leadsElsewhere(response))
+		{
+			log.warn("The clan bot URL answered {}, it does not lead to the bot", response.code());
+			return BotReply.blocked(BotReply.Blocker.WRONG_ADDRESS, WRONG_ADDRESS);
 		}
 		// A post without its screenshot would be unreviewable, so it is dropped with a clear word instead of resent
 		if (response.code() == TOO_LARGE)
@@ -172,10 +193,26 @@ public class BotClient
 		return response.code() == TOO_MANY && retryOnRateLimit;
 	}
 
-	// A 404 is a wrong address in the clan config, which staff fix there; the post itself is fine and waits
 	private static boolean botCouldNotTakeIt(Response response)
 	{
-		return response.code() >= 500 || response.code() == TOO_MANY || response.code() == NOT_FOUND;
+		return response.code() >= 500 || response.code() == TOO_MANY;
+	}
+
+	// A redirect or a missing page means the member's Clan bot URL is off; the post itself is fine and waits
+	private static boolean leadsElsewhere(Response response)
+	{
+		return response.isRedirect() || response.code() == NOT_FOUND;
+	}
+
+	// A host that does not resolve or refuses the connection is a wrong address or a bot that is down; a slow
+	// answer is neither and is simply retried later
+	private static BotReply noAnswer(IOException e)
+	{
+		if (e instanceof UnknownHostException || e instanceof ConnectException)
+		{
+			return BotReply.blocked(BotReply.Blocker.UNREACHABLE, UNREACHABLE);
+		}
+		return BotReply.undelivered(null);
 	}
 
 	// Bookkeeping posts are sent quietly; only what the member did right now, or anything that went wrong, is said in chat

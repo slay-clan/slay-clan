@@ -14,6 +14,7 @@ import com.slayclan.activity.ScaleBestStore;
 import com.slayclan.clan.ClanMembershipChecker;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
+import com.slayclan.config.SecretSafeUrl;
 import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
@@ -63,6 +64,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -137,8 +139,9 @@ public class SlayClanPlugin extends Plugin
 		"count is", "collection log", "combat task", "duration", "completion time", "delve level", "funny feeling", "backpack");
 	// The varbit combines two game settings: 1 = "New addition notification" (chat), 2 = "New addition popup"
 	private static final int COLLECTION_LOG_CHAT_BIT = 1;
+	private static final Set<String> CLAN_CONFIG_KEYS = Set.of(SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY);
 	private static final Set<String> POSTING_KEYS = Set.of(
-		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY);
+		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY, SlayClanConfig.BOT_URL_KEY);
 	private static final String RETIRED_DISCORD_NAME_KEY = "discordName";
 
 	@Inject
@@ -226,8 +229,9 @@ public class SlayClanPlugin extends Plugin
 	private PersonalBestReader personalBestReader;
 	// Logged once per login, as every event would otherwise repeat it
 	private boolean postingBlockedLogged;
-	// Said once per login and once per token change, as every post would otherwise repeat it
-	private boolean tokenWarningPending;
+	// Each said once per login and once per settings change, as every post would otherwise repeat it
+	private final Set<BotReply.Blocker> blockersSaid = ConcurrentHashMap.newKeySet();
+	private final AtomicBoolean clanConfigChanged = new AtomicBoolean();
 	private boolean clogSettingCheckPending;
 	private boolean setupWarningPending;
 	private boolean thresholdCheckPending;
@@ -297,14 +301,50 @@ public class SlayClanPlugin extends Plugin
 		{
 			configChangeRefresh.cancel(false);
 		}
-		tokenWarningPending = true;
-		configChangeRefresh = executor.schedule(
-			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), CONFIG_CHANGE_DELAY_SECONDS, TimeUnit.SECONDS);
+		// Rate limit retries waiting for the old address or token are kept and resent with the new settings
+		botClient.cancelRetries();
+		blockersSaid.clear();
+		postingBlockedLogged = false;
+		if (CLAN_CONFIG_KEYS.contains(event.getKey()))
+		{
+			clanConfigChanged.set(true);
+		}
+		configChangeRefresh = executor.schedule(this::followSettingsChange, CONFIG_CHANGE_DELAY_SECONDS, TimeUnit.SECONDS);
 	}
 
 	private static boolean changesWherePostsGo(ConfigChanged event)
 	{
 		return SlayClanConfig.GROUP.equals(event.getGroup()) && POSTING_KEYS.contains(event.getKey());
+	}
+
+	// Only the clan config URL and the posting switch change which clan config applies
+	private void followSettingsChange()
+	{
+		clientThread.invoke(this::warnAboutTheBotUrlWhileLoggedIn);
+		if (clanConfigChanged.getAndSet(false))
+		{
+			refreshRemoteConfig().thenRun(this::retryPendingPosts);
+		}
+		else
+		{
+			retryPendingPosts();
+		}
+	}
+
+	private void warnAboutTheBotUrlWhileLoggedIn()
+	{
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			warnIfBotUrlUnusable();
+		}
+	}
+
+	private void warnIfBotUrlUnusable()
+	{
+		if (config.enabled() && !hasSecretSafeBotUrl())
+		{
+			warnInChat("Slay Clan: paste the clan bot URL from the clan Discord into the plugin settings, otherwise nothing is posted. It must start with https://.");
+		}
 	}
 
 	/**
@@ -342,7 +382,7 @@ public class SlayClanPlugin extends Plugin
 	private void scheduleLoginChecks()
 	{
 		postingBlockedLogged = false;
-		tokenWarningPending = true;
+		blockersSaid.clear();
 		statusCheckPending = true;
 		caSnapshotPending = true;
 		pbSnapshotPending = true;
@@ -667,7 +707,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!completed.isEmpty())
 		{
-			postClogTasks(remoteConfig, completed, singleItems);
+			postClogTasks(completed, singleItems);
 		}
 	}
 
@@ -679,7 +719,7 @@ public class SlayClanPlugin extends Plugin
 	/**
 	 * A task completed by a single item names that item, like a task completed by a new item in chat does.
 	 */
-	private void postClogTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks, Map<String, String> singleItems)
+	private void postClogTasks(List<TaskDefinition> tasks, Map<String, String> singleItems)
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
@@ -697,7 +737,7 @@ public class SlayClanPlugin extends Plugin
 				posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 			}
 		}
-		postWithScreenshot(target(remoteConfig), posts);
+		postWithScreenshot(botTarget(), posts);
 	}
 
 	private void reportStoredPersonalBests()
@@ -727,12 +767,13 @@ public class SlayClanPlugin extends Plugin
 		{
 			return null;
 		}
-		return target(remoteConfig);
+		return botTarget();
 	}
 
-	private BotTarget target(RemoteConfig remoteConfig)
+	// Hub rules: posts may only go to an address the player set, never one read from the clan config
+	private BotTarget botTarget()
 	{
-		return new BotTarget(remoteConfig.getApiUrl(), clanToken());
+		return new BotTarget(botUrl(), clanToken());
 	}
 
 	private void reportCollectionLogItem(String item)
@@ -800,7 +841,7 @@ public class SlayClanPlugin extends Plugin
 			return;
 		}
 		int teamSize = teamSize(party);
-		BotTarget target = target(remoteConfig);
+		BotTarget target = botTarget();
 		if (trigger.startsWith(Triggers.RAID_PREFIX))
 		{
 			reportRaidBests(target, boss, bests, teamSize, party);
@@ -1006,7 +1047,7 @@ public class SlayClanPlugin extends Plugin
 		List<String> party = clanPartyToName(trigger, clan, remoteConfig, participants);
 		if (!soloTasks.isEmpty())
 		{
-			postTasks(remoteConfig, soloTasks, party);
+			postTasks(soloTasks, party);
 		}
 		if (clanOnlyTasks.isEmpty())
 		{
@@ -1014,7 +1055,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (membershipChecker.allMembers(clan, remoteConfig.getClanName(), participants))
 		{
-			postTasks(remoteConfig, clanOnlyTasks, party);
+			postTasks(clanOnlyTasks, party);
 		}
 		else
 		{
@@ -1083,7 +1124,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!reached.isEmpty())
 		{
-			postTasks(remoteConfig, reached);
+			postTasks(reached);
 		}
 	}
 
@@ -1144,7 +1185,7 @@ public class SlayClanPlugin extends Plugin
 			.collect(Collectors.toList());
 		if (!tasks.isEmpty())
 		{
-			postTasks(remoteConfig, tasks);
+			postTasks(tasks);
 		}
 	}
 
@@ -1229,15 +1270,15 @@ public class SlayClanPlugin extends Plugin
 			}
 			posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 		}
-		postWithScreenshot(target(remoteConfig), posts);
+		postWithScreenshot(botTarget(), posts);
 	}
 
-	private void postTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks)
+	private void postTasks(List<TaskDefinition> tasks)
 	{
-		postTasks(remoteConfig, tasks, List.of());
+		postTasks(tasks, List.of());
 	}
 
-	private void postTasks(RemoteConfig remoteConfig, List<TaskDefinition> tasks, List<String> party)
+	private void postTasks(List<TaskDefinition> tasks, List<String> party)
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
@@ -1250,7 +1291,7 @@ public class SlayClanPlugin extends Plugin
 			}
 			posts.add(messageFormatter.build(account, task, party, completedAt));
 		}
-		postWithScreenshot(target(remoteConfig), posts);
+		postWithScreenshot(botTarget(), posts);
 	}
 
 	private boolean notYetPosted(TaskDefinition task)
@@ -1323,7 +1364,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!posts.isEmpty())
 		{
-			postWithScreenshot(target(remoteConfig), posts);
+			postWithScreenshot(botTarget(), posts);
 		}
 	}
 
@@ -1356,7 +1397,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		try
 		{
-			activityReporter.retry(target(remoteConfig), pendingPostStore.load(Instant.now()))
+			activityReporter.retry(this::botTarget, pendingPostStore.load(Instant.now()))
 				.whenComplete((ignored, error) -> retryInProgress.set(false));
 		}
 		catch (RuntimeException e)
@@ -1379,14 +1420,30 @@ public class SlayClanPlugin extends Plugin
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && !clanToken().isEmpty() && profileSyncsToAccount();
+		boolean canPost = config.enabled() && hasSecretSafeBotUrl() && !clanToken().isEmpty() && profileSyncsToAccount();
 		if (!canPost && !postingBlockedLogged)
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, clan token set={}, profile synced={}",
-				config.enabled(), !clanToken().isEmpty(), profileSyncsToAccount());
+			log.info("Posting blocked: enabled={}, bot URL usable={}, clan token set={}, profile synced={}",
+				config.enabled(), hasSecretSafeBotUrl(), !clanToken().isEmpty(), profileSyncsToAccount());
 		}
 		return canPost;
+	}
+
+	// Posts carry the member's token
+	private boolean hasSecretSafeBotUrl()
+	{
+		return SecretSafeUrl.accepts(botUrl());
+	}
+
+	private String botUrl()
+	{
+		return trimmed(config.botUrl());
+	}
+
+	private static String trimmed(String setting)
+	{
+		return setting == null ? "" : setting.trim();
 	}
 
 	// A synced profile needs a RuneLite account login, and it is the sync that carries the task memory along
@@ -1398,8 +1455,7 @@ public class SlayClanPlugin extends Plugin
 
 	private String clanToken()
 	{
-		String token = config.clanToken();
-		return token == null ? "" : token.trim();
+		return trimmed(config.clanToken());
 	}
 
 	private String account()
@@ -1415,6 +1471,7 @@ public class SlayClanPlugin extends Plugin
 		{
 			return;
 		}
+		warnIfBotUrlUnusable();
 		if (clanToken().isEmpty())
 		{
 			warnInChat("Slay Clan: paste your clan token into the plugin settings, otherwise nothing is posted. Run /plugin token in the clan Discord to get one.");
@@ -1460,17 +1517,16 @@ public class SlayClanPlugin extends Plugin
 	// The bot answers on an HTTP thread, and the chat is only written from the client thread
 	private void tell(BotReply reply)
 	{
-		if (reply.getMessage() == null || tokenWarningAlreadySaid(reply))
+		if (reply.getMessage() == null || blockerAlreadySaid(reply))
 		{
 			return;
 		}
-		tokenWarningPending = tokenWarningPending && !reply.isTokenRejected();
 		clientThread.invoke(() -> warnInChat("Slay Clan: " + reply.getMessage()));
 	}
 
-	private boolean tokenWarningAlreadySaid(BotReply reply)
+	private boolean blockerAlreadySaid(BotReply reply)
 	{
-		return reply.isTokenRejected() && !tokenWarningPending;
+		return reply.isBlocked() && !blockersSaid.add(reply.getBlocker());
 	}
 
 	// The setting was replaced by the clan token; the old value would otherwise sit in every profile for good

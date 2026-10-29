@@ -1,11 +1,10 @@
 # Clan config reference
 
-The plugin reads its tasks from a JSON file hosted by the clan, for example as a secret GitHub Gist (use the URL without a commit hash, so it always points at the latest version). Players paste that URL into the plugin settings.
+The plugin reads its tasks from a JSON file hosted by the clan, for example as a secret GitHub Gist (use the URL without a commit hash, so it always points at the latest version). Players paste that URL into the plugin settings, together with the address of the clan's bot in **Clan bot URL**. The bot address is never read from this file, so staff hand out both links.
 
 ```json
 {
   "clanName": "Slay Clan",
-  "apiUrl": "https://bot.example.com/api/v1/posts",
   "tasks": {
     "Social": [ ... ],
     "PvM": [ ... ]
@@ -16,7 +15,6 @@ The plugin reads its tasks from a JSON file hosted by the clan, for example as a
 | Field | Meaning |
 |---|---|
 | `clanName` | The exact in-game clan name. Players logged into another clan never post |
-| `apiUrl` | Where the clan's bot receives posts, `https://<the bot's host>/api/v1/posts`. Every post goes there with the member's clan token, so only `https` is accepted, except `http://localhost` and `http://127.0.0.1` for testing a bot on the same computer |
 | `tasks` | Either a plain list of tasks, or an object grouping tasks by tier. In the grouped form a task without its own `tier` uses the group name |
 | `ignoredContent` | Optional. Boss and raid names the plugin must stay silent about, for example `["Fractured Archive"]`. The name is matched against the kill count or completion message, so it silences every `KILL:` and `RAID:` task, every `CONTRACT:` task and every personal best for that content; `CA:`, `CLOG` and `DELVE` tasks are not affected, since their messages do not name the boss. Names match like triggers, ignoring case and apostrophes, and a trailing `*` matches every name starting with the rest, so `Chambers of Xeric*` also covers Challenge Mode. A single name may be written without brackets. Use it to switch new content off within minutes when its game messages turn out to post things they should not, such as a practice mode, until a plugin release handles it |
 
@@ -80,7 +78,7 @@ Besides tasks and drops, the plugin sends the bot an activity feed: one post per
 
 ## What a post looks like
 
-Every post is a `multipart/form-data` request to `apiUrl` with the header `Authorization: Bearer <clan token>`, a JSON part named `post` and, for tasks, drops and new personal bests, a PNG part named `screenshot`. The JSON carries `kind` (`task`, `drop`, `pb`, `clog`, `ca`, `status`, `clog-snapshot`, `ca-snapshot` or `pb-snapshot`), a `nonce` of 16 hex characters that makes a retry safe, the `account` the post was made on, `at` (when it happened, ISO 8601), the `fields` of that kind (`Task`, `Tier`, `Points`, `Item`, `Source`, `Party`, `Value in M`, `Boss`, `Time`, `Time type`, `Team size`, `New` and so on) and, for snapshots, `accountHash` and the `entries`. The bot answers with JSON: `status` is `recorded`, `awaiting` (the bot asked the member something in Discord), `duplicate` or `refused`, with a `message` the plugin shows in the game chat. A `401` means the token is not accepted: the post is kept, the member is told once per login, and the retries resume when a new token is pasted. A `413` means the screenshot is too large: the post is dropped and the member is told to submit it by hand, since a review without the screenshot is no review. A `404`, `429` or `5xx` keeps the post for a retry later, since the address or the bot is the problem, not the post. Any other `4xx` drops the post and shows the bot's message, since sending it again would fail the same way.
+Every post is a `multipart/form-data` request to the address in the member's **Clan bot URL** setting (https, or http only to `localhost` or `127.0.0.1` for testing) with the header `Authorization: Bearer <clan token>`, a JSON part named `post` and, for tasks, drops and new personal bests, a PNG part named `screenshot`. The JSON carries `kind` (`task`, `drop`, `pb`, `clog`, `ca`, `status`, `clog-snapshot`, `ca-snapshot` or `pb-snapshot`), a `nonce` of 16 hex characters that makes a retry safe, the `account` the post was made on, `at` (when it happened, ISO 8601), the `fields` of that kind (`Task`, `Tier`, `Points`, `Item`, `Source`, `Party`, `Value in M`, `Boss`, `Time`, `Time type`, `Team size`, `New` and so on) and, for snapshots, `accountHash` and the `entries`. The bot answers with JSON: `status` is `recorded`, `awaiting` (the bot asked the member something in Discord), `duplicate` or `refused`, with a `message` the plugin shows in the game chat. A `401` means the token is not accepted: the post is kept, the member is told once per login, and the retries resume when a new token is pasted. A `413` means the screenshot is too large: the post is dropped and the member is told to submit it by hand, since a review without the screenshot is no review. A `429` or `5xx` keeps the post for a retry later. A `404`, a redirect or a host that cannot be reached also keeps the post, and the member is told once per login to check the Clan bot URL; redirects are never followed. Any other `4xx` drops the post and shows the bot's message, since sending it again would fail the same way.
 
 ## How group tasks are checked
 

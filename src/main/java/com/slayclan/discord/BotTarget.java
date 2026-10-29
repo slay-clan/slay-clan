@@ -4,13 +4,12 @@ import lombok.ToString;
 import lombok.Value;
 
 /**
- * Where posts go and who sends them: the clan bot's API from the clan config and the member's own token from
- * the plugin settings.
+ * Where posts go and who sends them, both from the member's plugin settings.
  */
 @Value
 public class BotTarget
 {
-	String apiUrl;
+	String botUrl;
 	// Keeps the token out of every log line and assertion message that prints the target
 	@ToString.Exclude
 	String token;

@@ -1,6 +1,5 @@
 {
   "clanName": "Slay Clan",
-  "apiUrl": "https://bot.example.com/api/v1/posts",
   "ignoredContent": [],
   "tasks": {
     "Social": [

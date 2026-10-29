@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -53,24 +54,25 @@ public class ActivityReporter
 	}
 
 	/**
-	 * Sends kept posts one at a time, dropping each the bot took. Stops at a rejected token, since every post
-	 * after it would be refused the same way and nag the member once per post.
+	 * Sends kept posts one at a time, dropping each the bot took. The target is read again for every post, so a
+	 * Clan bot URL changed during the round is followed. Stops at a blocked post, since every post after it would
+	 * fail the same way.
 	 */
-	public CompletableFuture<Void> retry(BotTarget target, List<PendingPost> pending)
+	public CompletableFuture<Void> retry(Supplier<BotTarget> target, List<PendingPost> pending)
 	{
 		if (pending.isEmpty())
 		{
 			return CompletableFuture.completedFuture(null);
 		}
 		PendingPost first = pending.get(0);
-		return botClient.send(target, first.getPayload(), null).thenCompose(reply ->
+		return botClient.send(target.get(), first.getPayload(), null).thenCompose(reply ->
 		{
 			tell.accept(reply);
 			if (reply.isDelivered())
 			{
 				pendingPostStore.remove(first);
 			}
-			if (reply.isTokenRejected())
+			if (reply.isBlocked())
 			{
 				return CompletableFuture.completedFuture(null);
 			}

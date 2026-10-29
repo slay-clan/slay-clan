@@ -44,23 +44,12 @@ public class RemoteConfigParser
 
 	private static boolean isUsable(RemoteConfig config)
 	{
-		return config != null && hasRequiredFields(config) && hasSecretSafeApiUrl(config) && hasUniqueIds(config.getTasks());
+		return config != null && hasRequiredFields(config) && hasUniqueIds(config.getTasks());
 	}
 
 	private static boolean hasRequiredFields(RemoteConfig config)
 	{
 		return !isBlank(config.getClanName()) && config.getTasks() != null;
-	}
-
-	// Posts carry the member's token
-	private static boolean hasSecretSafeApiUrl(RemoteConfig config)
-	{
-		if (SecretSafeUrl.accepts(config.getApiUrl()))
-		{
-			return true;
-		}
-		log.info("Clan config rejected: apiUrl must be https, or http on this computer");
-		return false;
 	}
 
 	/**
@@ -99,7 +88,6 @@ public class RemoteConfigParser
 		}
 		RemoteConfig config = new RemoteConfig();
 		config.setClanName(string(root, "clanName"));
-		config.setApiUrl(string(root, "apiUrl"));
 		config.setTasks(tasks(root.get("tasks")));
 		config.setIgnoredContent(strings(root.get("ignoredContent")));
 		return config;

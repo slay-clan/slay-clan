@@ -127,19 +127,62 @@ public class BotClientTest
 		BotReply reply = send(task, null);
 
 		assertFalse(reply.isDelivered());
-		assertTrue(reply.isTokenRejected());
+		assertEquals(BotReply.Blocker.TOKEN_REJECTED, reply.getBlocker());
 		assertTrue(reply.getMessage().contains("/plugin token"));
 	}
 
 	@Test
-	public void keepsThePostQuietlyWhenTheAddressIsWrong() throws Exception
+	public void keepsThePostAndPointsAtTheBotUrlWhenTheAddressFindsNoBot() throws Exception
 	{
 		server.enqueue(new MockResponse().setResponseCode(404));
 
 		BotReply reply = send(task, null);
 
 		assertFalse(reply.isDelivered());
-		assertNull(reply.getMessage());
+		assertEquals(BotReply.Blocker.WRONG_ADDRESS, reply.getBlocker());
+		assertTrue(reply.getMessage().contains("Clan bot URL"));
+	}
+
+	@Test
+	public void neverFollowsTheBotToAnotherAddress() throws Exception
+	{
+		MockWebServer elsewhere = new MockWebServer();
+		elsewhere.start();
+		try
+		{
+			server.enqueue(new MockResponse().setResponseCode(307).setHeader("Location", elsewhere.url("/stolen").toString()));
+
+			BotReply reply = send(task, null);
+
+			assertEquals(BotReply.Blocker.WRONG_ADDRESS, reply.getBlocker());
+			assertEquals(0, elsewhere.getRequestCount());
+		}
+		finally
+		{
+			elsewhere.shutdown();
+		}
+	}
+
+	@Test
+	public void keepsThePostAndSaysTheBotCannotBeReachedWhenNothingAnswers() throws Exception
+	{
+		String address = localAddress();
+		server.shutdown();
+
+		BotReply reply = client.send(new BotTarget(address, TOKEN), task, null).get(5, TimeUnit.SECONDS);
+
+		assertFalse(reply.isDelivered());
+		assertEquals(BotReply.Blocker.UNREACHABLE, reply.getBlocker());
+	}
+
+	@Test
+	public void sendsNothingToAnAddressThatIsNotSafeForTheToken() throws Exception
+	{
+		BotReply reply = client.send(new BotTarget("http://bot.example/api/v1/posts", TOKEN), task, null).get(5, TimeUnit.SECONDS);
+
+		assertFalse(reply.isDelivered());
+		assertEquals(BotReply.Blocker.WRONG_ADDRESS, reply.getBlocker());
+		assertEquals(0, server.getRequestCount());
 	}
 
 	@Test
@@ -219,7 +262,13 @@ public class BotClientTest
 
 	private BotTarget target()
 	{
-		return new BotTarget(server.url("/api/v1/posts").toString(), TOKEN);
+		return new BotTarget(localAddress(), TOKEN);
+	}
+
+	// The test server names itself by the machine's host name, which the client rightly refuses for plain http
+	private String localAddress()
+	{
+		return "http://localhost:" + server.getPort() + "/api/v1/posts";
 	}
 
 	private static MockResponse recorded()

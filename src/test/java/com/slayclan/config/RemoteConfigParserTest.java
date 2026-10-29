@@ -20,7 +20,6 @@ public class RemoteConfigParserTest
 		RemoteConfig config = parser.parse(TestConfigs.VALID_JSON).orElseThrow();
 
 		assertEquals("SlayClan", config.getClanName());
-		assertEquals(TestConfigs.API_URL, config.getApiUrl());
 		assertEquals(1, config.getTasks().size());
 		TaskDefinition task = config.getTasks().get(0);
 		assertEquals("cox", task.getId());
@@ -34,7 +33,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void readsTheContentTheClanHasSwitchedOff()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"ignoredContent\":[\"Fractured Archive\",\"Yama*\"],"
 			+ "\"tasks\":[{\"id\":\"cox\",\"name\":\"Clan Raid\",\"trigger\":\"RAID:Chambers of Xeric\",\"tier\":\"Repeatable\",\"points\":10}]}";
 
@@ -67,7 +66,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void defaultsMinPlayersToOneWhenMissing()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":[{\"id\":\"cox\",\"name\":\"Clan Raid\",\"trigger\":\"RAID:Chambers of Xeric\",\"tier\":\"Repeatable\",\"points\":10}]}";
 
 		RemoteConfig config = parser.parse(json).orElseThrow();
@@ -79,7 +78,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void parsesDropValueFields()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":[{\"id\":\"drops\",\"name\":\"Valuable drop\",\"trigger\":\"DROP\",\"tier\":\"Repeatable\","
 			+ "\"minValue\":10000,\"valuePerPoint\":10000,\"includeStackable\":true}]}";
 
@@ -93,7 +92,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void parsesCollectionLogTaskFields()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":[{\"id\":\"dust\",\"name\":\"Dust to Dust\",\"trigger\":\"CLOG\",\"tier\":\"PvM\",\"points\":200,"
 			+ "\"once\":true,\"items\":[\"Sanguine dust\",\"Metamorphic dust\"],\"required\":2}]}";
 
@@ -119,7 +118,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void readsTasksGroupedByTier()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":{"
 			+ "\"Social\":[{\"id\":\"trial-by-fire\",\"trigger\":\"CLOG\"}],"
 			+ "\"Valuable drops\":[{\"id\":\"drops\",\"trigger\":\"DROP\",\"tier\":\"Repeatable\"}]"
@@ -135,7 +134,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsGroupThatIsNotAList()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":{\"Social\":{\"id\":\"trial-by-fire\"}}}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -146,7 +145,6 @@ public class RemoteConfigParserTest
 	{
 		String json = "{\n"
 			+ "  \"clanName\": \"SlayClan\",\n"
-			+ "  \"apiUrl\": \"https://bot.example/api/v1/posts\",\n"
 			+ "  \"tasks\": [\n"
 			+ "    // Social\n"
 			+ "    { \"id\": \"trial-by-fire\", \"trigger\": \"CLOG\" },\n"
@@ -182,49 +180,17 @@ public class RemoteConfigParserTest
 	}
 
 	@Test
-	public void rejectsAPlainHttpApiOnAnotherComputer()
+	public void stillReadsAnOldClanConfigThatContainsTheBotAddress()
 	{
-		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://bot.example/api/v1/posts");
+		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"apiUrl\":\"https://bot.example/api/v1/posts\",\"tasks\"");
 
-		assertFalse(parser.parse(json).isPresent());
-	}
-
-	@Test
-	public void rejectsAnApiThatOnlyLooksLocalInFrontOfTheUserinfoSeparator()
-	{
-		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://localhost:@evil.example/api/v1/posts");
-
-		assertFalse(parser.parse(json).isPresent());
-	}
-
-	@Test
-	public void rejectsAnApiThatIsNotAnAddress()
-	{
-		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "https://");
-
-		assertFalse(parser.parse(json).isPresent());
-	}
-
-	@Test
-	public void acceptsAPlainHttpApiOnThisComputerForTesting()
-	{
-		String json = TestConfigs.VALID_JSON.replace(TestConfigs.API_URL, "http://127.0.0.1:3000/api/v1/posts");
-
-		assertEquals("http://127.0.0.1:3000/api/v1/posts", parser.parse(json).orElseThrow().getApiUrl());
-	}
-
-	@Test
-	public void rejectsAConfigWithoutAnApi()
-	{
-		String json = TestConfigs.VALID_JSON.replace("\"apiUrl\":\"" + TestConfigs.API_URL + "\",", "");
-
-		assertFalse(parser.parse(json).isPresent());
+		assertEquals("SlayClan", parser.parse(json).orElseThrow().getClanName());
 	}
 
 	@Test
 	public void rejectsTaskWithoutId()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":[{\"name\":\"Clan Raid\",\"trigger\":\"RAID:*\"}]}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -233,7 +199,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsTaskIdWithColon()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":[{\"id\":\"ca:safe\",\"trigger\":\"CA:Just To Be Safe\"}]}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -242,7 +208,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsDuplicateTaskIds()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\","
+		String json = "{\"clanName\":\"SlayClan\","
 			+ "\"tasks\":{\"Social\":[{\"id\":\"cox\",\"trigger\":\"RAID:*\"}],\"PvM\":[{\"id\":\"cox\",\"trigger\":\"KILL:Yama\"}]}}";
 
 		assertFalse(parser.parse(json).isPresent());
@@ -251,7 +217,7 @@ public class RemoteConfigParserTest
 	@Test
 	public void rejectsMissingTasks()
 	{
-		String json = "{\"clanName\":\"SlayClan\",\"apiUrl\":\"https://bot.example/api/v1/posts\"}";
+		String json = "{\"clanName\":\"SlayClan\"}";
 
 		Optional<RemoteConfig> result = parser.parse(json);
 

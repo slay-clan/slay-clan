@@ -8,7 +8,6 @@ import lombok.Data;
 public class RemoteConfig
 {
 	private String clanName;
-	private String apiUrl;
 	private List<TaskDefinition> tasks;
 	private List<String> ignoredContent;
 

@@ -7,7 +7,7 @@ Posts your completed Slay Clan tasks to the clan Discord for you. Finish a task 
 ![The plugin's settings panel](docs/images/settings.png)
 
 1. Install **Slay Clan** from the Plugin Hub.
-2. Paste the config URL from the clan Discord into **Clan config URL**. Ask staff if you cannot find it.
+2. Paste the config URL and the bot URL from the clan Discord into **Clan config URL** and **Clan bot URL**. Ask staff if you cannot find them.
 3. Run `/plugin token` in the Slay Clan Discord and paste the answer into **Clan token**. It proves the posts are yours, so keep it to yourself. If it leaks, run the command again and the old one stops working.
 4. Turn on **Enable posting**.
 5. Log in to RuneLite with a **RuneLite account** (top right of the window) and turn on **Sync** for your profile in the profile panel. The plugin uses it to remember which one-time tasks it already posted, across your main, your alts and other computers.
@@ -54,7 +54,7 @@ If the bot cannot be reached, the post is kept and sent again later without the 
 
 ## For clan staff
 
-Tasks, points and the bot's address live in a JSON file the clan hosts, so they change without a plugin update. Players pick changes up within about 10 minutes. Nothing is tied to Slay Clan, so another clan can run the plugin with its own file and bot. See [docs/config.md](docs/config.md) and [docs/example-config.json](docs/example-config.json).
+Tasks and points live in a JSON file the clan hosts, so they change without a plugin update. Players pick changes up within about 10 minutes. The bot's address is a plugin setting each player fills in, so the plugin only ever sends to an address the player chose. Nothing is tied to Slay Clan, so another clan can run the plugin with its own file and bot. See [docs/config.md](docs/config.md) and [docs/example-config.json](docs/example-config.json).
 
 The file's `ignoredContent` list switches a boss or raid off within minutes if its game messages ever post the wrong thing.
 

@@ -47,6 +47,7 @@ import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.http.api.item.ItemPrice;
@@ -65,6 +66,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeast;
@@ -137,11 +139,11 @@ public class SlayClanPluginFlowTest
 	public void setUp()
 	{
 		remoteConfig.setClanName("Slay Clan");
-		remoteConfig.setApiUrl(API);
 		when(remoteConfigService.current()).thenReturn(remoteConfig);
 		when(remoteConfigService.refresh(any())).thenReturn(CompletableFuture.completedFuture(null));
 		when(config.enabled()).thenReturn(true);
 		when(config.configUrl()).thenReturn("https://example.test/config.json");
+		when(config.botUrl()).thenReturn(API);
 		when(config.clanToken()).thenReturn(TOKEN);
 		ConfigProfile syncedProfile = mock(ConfigProfile.class);
 		when(syncedProfile.isSync()).thenReturn(true);
@@ -923,12 +925,12 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void retriesAKeptPostToTheBotTheClanConfigNamesNow()
+	public void resendsAKeptPostToTheBotAddressCurrentlyInTheSettings()
 	{
 		tasks();
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"));
 		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
-		remoteConfig.setApiUrl("https://moved.example/api/v1/posts");
+		when(config.botUrl()).thenReturn("https://moved.example/api/v1/posts");
 
 		login();
 		ticks(16);
@@ -937,18 +939,79 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void resendsKeptPostsToTheNewAddressAsSoonAsTheBotUrlIsChanged()
+	{
+		tasks();
+		login();
+		ticks(16);
+		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"));
+		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		when(config.botUrl()).thenReturn("https://moved.example/api/v1/posts");
+
+		ConfigChanged change = new ConfigChanged();
+		change.setGroup(SlayClanConfig.GROUP);
+		change.setKey(SlayClanConfig.BOT_URL_KEY);
+		plugin.onConfigChanged(change);
+		ArgumentCaptor<Runnable> followUp = ArgumentCaptor.forClass(Runnable.class);
+		verify(executor).schedule(followUp.capture(), anyLong(), any());
+		followUp.getValue().run();
+
+		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), eq(pending.getPayload()), (byte[]) any());
+	}
+
+	@Test
+	public void postsToTheBotUrlWithoutTheSpacesAroundIt()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(config.botUrl()).thenReturn("  " + API + " ");
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		assertEquals(List.of("Any Raid"), postedTasks());
+	}
+
+	@Test
+	public void postsNothingToAPlainHttpBotUrlOnAnotherComputer()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(config.botUrl()).thenReturn("http://bot.example/api/v1/posts");
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(botClient, never()).send(any(), any(), (byte[]) any());
+	}
+
+	@Test
+	public void postsNothingAndAsksForTheBotUrlInChatWhenTheSettingIsEmpty()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(config.botUrl()).thenReturn("");
+
+		login();
+		ticks(16);
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(botClient, never()).send(any(), any(), (byte[]) any());
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("clan bot URL"), isNull());
+	}
+
+	@Test
 	public void aRejectedTokenIsSaidOncePerLoginHoweverManyPostsItStops()
 	{
 		tasks();
 		when(botClient.send(any(), any(), (byte[]) any()))
-			.thenReturn(CompletableFuture.completedFuture(BotReply.tokenRejected("Token not accepted.")));
+			.thenReturn(CompletableFuture.completedFuture(BotReply.blocked(BotReply.Blocker.TOKEN_REJECTED, "Token not accepted.")));
 
 		login();
 		ticks(6);
 		chat("New item added to your collection log: <col=ff0000>Vorki</col>");
 
 		verify(client, times(1)).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
-			org.mockito.ArgumentMatchers.contains("Token not accepted."), isNull());
+			contains("Token not accepted."), isNull());
 		verify(pendingPostStore).add(any(), any());
 	}
 
@@ -963,7 +1026,7 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
-			org.mockito.ArgumentMatchers.contains("Slay Clan: Not recorded: already completed."), isNull());
+			contains("Slay Clan: Not recorded: already completed."), isNull());
 		verify(pendingPostStore, never()).add(any(), any());
 	}
 

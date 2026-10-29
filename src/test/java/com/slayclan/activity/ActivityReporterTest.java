@@ -56,7 +56,7 @@ public class ActivityReporterTest
 		when(botClient.send(any(), any(), any()))
 			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.delivered(null)));
 
-		reporter.retry(TARGET, List.of(first, second));
+		reporter.retry(() -> TARGET, List.of(first, second));
 
 		verify(botClient, times(2)).send(eq(TARGET), any(), isNull());
 		verify(pendingPostStore, never()).remove(first);
@@ -64,13 +64,27 @@ public class ActivityReporterTest
 	}
 
 	@Test
+	public void aBotUrlChangedDuringTheRetryRoundIsUsedForTheRemainingPosts()
+	{
+		PendingPost first = new PendingPost("2026-10-10T18:00:00Z", payload("Old post"));
+		PendingPost second = new PendingPost("2026-10-10T18:00:01Z", payload("Older post"));
+		BotTarget moved = new BotTarget("https://moved.example/api/v1/posts", "sc_test");
+		java.util.Iterator<BotTarget> targets = List.of(TARGET, moved).iterator();
+
+		reporter.retry(targets::next, List.of(first, second));
+
+		verify(botClient).send(eq(TARGET), eq(first.getPayload()), isNull());
+		verify(botClient).send(eq(moved), eq(second.getPayload()), isNull());
+	}
+
+	@Test
 	public void aRejectedTokenStopsTheRetryRoundAfterTheFirstPost()
 	{
 		PendingPost first = new PendingPost("2026-10-10T18:00:00Z", payload("Old post"));
 		PendingPost second = new PendingPost("2026-10-10T18:00:01Z", payload("Older post"));
-		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.tokenRejected("Token not accepted.")));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.blocked(BotReply.Blocker.TOKEN_REJECTED, "Token not accepted.")));
 
-		reporter.retry(TARGET, List.of(first, second));
+		reporter.retry(() -> TARGET, List.of(first, second));
 
 		verify(botClient, times(1)).send(eq(TARGET), any(), isNull());
 		verify(pendingPostStore, never()).remove(any());
