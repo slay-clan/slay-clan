@@ -111,7 +111,8 @@ public class ActivityFormatterTest
 			"Time type", "single",
 			"Team size", "3",
 			"Party", "Clanmate, Raidbuddy, Third",
-			"New", "yes"), post.getFields());
+			"New", "yes",
+			"Stored best", "no"), post.getFields());
 	}
 
 	@Test
@@ -133,8 +134,22 @@ public class ActivityFormatterTest
 			"Time", "3:09",
 			"Time type", "single",
 			"Scale", "unknown, the game keeps one personal best per boss",
-			"New", "no"), post.getFields());
+			"New", "no",
+			"Stored best", "yes"), post.getFields());
 		assertFalse(post.getFields().containsKey("Team size"));
+	}
+
+	@Test
+	public void aStoredBestReportedAtARaidIsFlaggedSoTheBotCanKeepItOffASeasonBoard()
+	{
+		PostPayload stored = formatter.personalBest("Clanmate", "Chambers of Xeric", "29:49.20", Kind.SINGLE, 3,
+			List.of("Clanmate", "Raidbuddy", "Third"), PersonalBestClaim.CURRENT, AT);
+		PostPayload kill = formatter.personalBest("Clanmate", "Yama", "5:57", Kind.SINGLE, 1, List.of("Clanmate"),
+			PersonalBestClaim.FASTEST_AT_SCALE, AT);
+
+		assertEquals("yes", stored.getFields().get("Stored best"));
+		assertEquals("no", stored.getFields().get("New"));
+		assertEquals("no", kill.getFields().get("Stored best"));
 	}
 
 	@Test

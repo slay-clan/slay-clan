@@ -109,9 +109,11 @@ public class ActivityFormatter
 		return personalBestPayload(account, fields, PersonalBestClaim.CURRENT, at);
 	}
 
-	// A current best is reported so the board can be filled in, not because of this kill, so it gets no chat line
+	// A current best is reported so the board can be filled in, not because of this kill, so it gets no chat line.
+	// The bot cannot tell when a stored best was set, so it is flagged for the PB season rule.
 	private static PostPayload personalBestPayload(String account, Map<String, String> fields, PersonalBestClaim claim, Instant at)
 	{
+		fields.put("Stored best", claim == PersonalBestClaim.CURRENT ? "yes" : "no");
 		return new PostPayload(PostKind.PB.getName(), Nonce.next(), account, null, at.toString(), fields, null,
 			claim == PersonalBestClaim.CURRENT);
 	}
