@@ -700,6 +700,49 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void aNewPbSeasonInTheClanConfigReportsTheFirstKillAgainEvenWhenLastSeasonWasFaster()
+	{
+		tasks();
+		chat("Fight duration: <col=ff0000>5:40</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>10</col>.");
+		ticks(3);
+		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>11</col>.");
+		ticks(3);
+		assertEquals(2, postedCount("pb"));
+
+		remoteConfig.setPbSeasonStart("2026-11-16");
+		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>12</col>.");
+		ticks(3);
+
+		List<PostPayload> bests = posted("pb");
+		assertEquals(3, bests.size());
+		assertEquals("5:57", bests.get(2).getFields().get("Time"));
+	}
+
+	@Test
+	public void endingThePbSeasonGoesBackToTheKillsRememberedSinceInstall()
+	{
+		tasks();
+		chat("Fight duration: <col=ff0000>5:40</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>10</col>.");
+		ticks(3);
+		remoteConfig.setPbSeasonStart("2026-11-16");
+		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>11</col>.");
+		ticks(3);
+		assertEquals(3, postedCount("pb"));
+
+		remoteConfig.setPbSeasonStart("");
+		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
+		chat("Your Yama kill count is: <col=ff0000>12</col>.");
+		ticks(3);
+
+		assertEquals(3, postedCount("pb"));
+	}
+
+	@Test
 	public void sendsStoredPersonalBestsAfterLogin()
 	{
 		tasks();

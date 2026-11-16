@@ -10,6 +10,8 @@ public class RemoteConfig
 	private String clanName;
 	private List<TaskDefinition> tasks;
 	private List<String> ignoredContent;
+	// Any text is a season and a different text is a different season; missing or empty between seasons
+	private String pbSeasonStart;
 
 	/**
 	 * True when the clan has switched this boss or raid off: no task and no personal best is posted for it.

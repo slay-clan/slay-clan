@@ -7,6 +7,7 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
@@ -61,6 +62,15 @@ public class RemoteConfigParserTest
 		RemoteConfig config = parser.parse(TestConfigs.VALID_JSON).orElseThrow();
 
 		assertFalse(config.ignores("Fractured Archive"));
+	}
+
+	@Test
+	public void readsThePbSeasonStartAndLeavesItUnsetWhenMissing()
+	{
+		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"pbSeasonStart\":\"2026-11-16\",\"tasks\"");
+
+		assertEquals("2026-11-16", parser.parse(json).orElseThrow().getPbSeasonStart());
+		assertNull(parser.parse(TestConfigs.VALID_JSON).orElseThrow().getPbSeasonStart());
 	}
 
 	@Test

@@ -872,12 +872,13 @@ public class SlayClanPlugin extends Plugin
 	private void reportBossBests(BotTarget target, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
 	{
 		long accountHash = client.getAccountHash();
+		ScaleBestStore seasonBests = scaleBestStore.forSeason(pbSeasonStart());
 		for (PersonalBest best : bests)
 		{
 			double run = best.getRunSeconds();
-			if (worthPostingAtScale(accountHash, boss, best, teamSize))
+			if (worthPostingAtScale(seasonBests, accountHash, boss, best, teamSize))
 			{
-				scaleBestStore.saveBest(accountHash, boss, best.getKind(), teamSize, run);
+				seasonBests.saveBest(accountHash, boss, best.getKind(), teamSize, run);
 				postBest(target, boss, TimeFormat.of(run), best.getKind(), teamSize, party,
 					best.isNewRecord() ? PersonalBestClaim.NEW_RECORD : PersonalBestClaim.FASTEST_AT_SCALE);
 			}
@@ -890,9 +891,9 @@ public class SlayClanPlugin extends Plugin
 		}
 	}
 
-	private boolean worthPostingAtScale(long accountHash, String boss, PersonalBest best, int teamSize)
+	private static boolean worthPostingAtScale(ScaleBestStore seasonBests, long accountHash, String boss, PersonalBest best, int teamSize)
 	{
-		return best.isNewRecord() || scaleBestStore.isFasterThanStored(accountHash, boss, best.getKind(), teamSize, best.getRunSeconds());
+		return best.isNewRecord() || seasonBests.isFasterThanStored(accountHash, boss, best.getKind(), teamSize, best.getRunSeconds());
 	}
 
 	private boolean gameBestStillUnreported(long accountHash, String boss, PersonalBest best)
@@ -1453,6 +1454,12 @@ public class SlayClanPlugin extends Plugin
 	{
 		ConfigProfile profile = configManager.getProfile();
 		return profile != null && profile.isSync();
+	}
+
+	private String pbSeasonStart()
+	{
+		RemoteConfig remoteConfig = remoteConfigService.current();
+		return remoteConfig == null ? null : remoteConfig.getPbSeasonStart();
 	}
 
 	private boolean onMainGameWorld()

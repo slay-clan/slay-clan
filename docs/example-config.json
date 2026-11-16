@@ -1,6 +1,7 @@
 {
   "clanName": "Slay Clan",
   "ignoredContent": [],
+  "pbSeasonStart": "",
   "tasks": {
     "Social": [
       { "id": "trial-by-fire", "name": "Trial by Fire", "trigger": "CLOG", "points": 20, "once": true, "items": ["Fire cape"] },

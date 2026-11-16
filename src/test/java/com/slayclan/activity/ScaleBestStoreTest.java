@@ -49,4 +49,35 @@ public class ScaleBestStoreTest
 		verify(configManager).setConfiguration("slayclanmemory", "gamebestreported.42.yama", "true");
 	}
 
+	@Test
+	public void aNewSeasonForgetsTheKillsOfTheOldOne()
+	{
+		when(configManager.getConfiguration("slayclanmemory", "scalebest.42.yama.single.1")).thenReturn("300.0");
+		when(configManager.getConfiguration("slayclanmemory", "scalebest.2026-11-16.42.yama.single.1")).thenReturn("340.0");
+
+		ScaleBestStore season = store.forSeason("2026-11-16");
+
+		assertTrue(season.isFasterThanStored(42L, "Yama", Kind.SINGLE, 1, 330.0));
+		assertFalse(season.isFasterThanStored(42L, "Yama", Kind.SINGLE, 1, 340.0));
+	}
+
+	@Test
+	public void endingTheSeasonGoesBackToTheKillsRememberedSinceInstall()
+	{
+		when(configManager.getConfiguration("slayclanmemory", "scalebest.42.yama.single.1")).thenReturn("300.0");
+
+		assertFalse(store.forSeason("2026-11-16").forSeason("").isFasterThanStored(42L, "Yama", Kind.SINGLE, 1, 330.0));
+		assertFalse(store.forSeason("  ").isFasterThanStored(42L, "Yama", Kind.SINGLE, 1, 330.0));
+		assertFalse(store.forSeason(null).isFasterThanStored(42L, "Yama", Kind.SINGLE, 1, 330.0));
+	}
+
+	@Test
+	public void savesASeasonKillUnderTheSeasonAndAKillWithoutASeasonUnderTheOldKey()
+	{
+		store.forSeason("2026-11-16").saveBest(42L, "Yama", Kind.SINGLE, 1, 330.0);
+		store.saveBest(42L, "Yama", Kind.SINGLE, 1, 300.0);
+
+		verify(configManager).setConfiguration("slayclanmemory", "scalebest.2026-11-16.42.yama.single.1", "330.0");
+		verify(configManager).setConfiguration("slayclanmemory", "scalebest.42.yama.single.1", "300.0");
+	}
 }

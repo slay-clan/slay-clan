@@ -90,6 +90,7 @@ public class RemoteConfigParser
 		config.setClanName(string(root, "clanName"));
 		config.setTasks(tasks(root.get("tasks")));
 		config.setIgnoredContent(strings(root.get("ignoredContent")));
+		config.setPbSeasonStart(string(root, "pbSeasonStart"));
 		return config;
 	}
 
