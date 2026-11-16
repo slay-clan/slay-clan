@@ -9,13 +9,13 @@ import org.junit.Test;
 public class MainGameWorldTest
 {
 	@Test
-	public void freeToPlayWorldWithoutAnyFlagCounts()
+	public void freeToPlayWorldWithoutAnyFlagCountsAsMainGame()
 	{
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.noneOf(WorldType.class)));
 	}
 
 	@Test
-	public void membersPvpBountyHighRiskAndSkillTotalWorldsCount()
+	public void membersPvpBountyHighRiskAndSkillTotalWorldsCountAsMainGame()
 	{
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.PVP, WorldType.HIGH_RISK)));
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.BOUNTY)));
@@ -23,13 +23,13 @@ public class MainGameWorldTest
 	}
 
 	@Test
-	public void hardcoreWorldsCount()
+	public void hardcoreWorldsCountAsMainGame()
 	{
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.HARDCORE_MAIN)));
 	}
 
 	@Test
-	public void minigameThemedWorldsCount()
+	public void minigameThemedWorldsCountAsMainGame()
 	{
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.LAST_MAN_STANDING)));
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.PVP_ARENA)));
@@ -37,7 +37,7 @@ public class MainGameWorldTest
 	}
 
 	@Test
-	public void deadmanLeaguesSpeedrunTournamentAndBetaWorldsDoNotCount()
+	public void deadmanLeaguesSpeedrunTournamentAndBetaWorldsDoNotCountAsMainGame()
 	{
 		assertFalse(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.DEADMAN)));
 		assertFalse(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.SEASONAL)));
@@ -47,7 +47,7 @@ public class MainGameWorldTest
 	}
 
 	@Test
-	public void throwawayProgressWorldsDoNotCount()
+	public void throwawayProgressWorldsDoNotCountAsMainGame()
 	{
 		assertFalse(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.NOSAVE_MODE)));
 	}

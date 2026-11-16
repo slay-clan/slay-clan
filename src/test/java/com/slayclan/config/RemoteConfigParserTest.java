@@ -74,6 +74,17 @@ public class RemoteConfigParserTest
 	}
 
 	@Test
+	public void aSeasonStartThatIsNotTextCountsAsNoSeasonInsteadOfBreakingTheConfig()
+	{
+		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"pbSeasonStart\":[\"2026-11-16\"],\"tasks\"");
+
+		RemoteConfig config = parser.parse(json).orElseThrow();
+
+		assertNull(config.getPbSeasonStart());
+		assertEquals("SlayClan", config.getClanName());
+	}
+
+	@Test
 	public void defaultsMinPlayersToOneWhenMissing()
 	{
 		String json = "{\"clanName\":\"SlayClan\","

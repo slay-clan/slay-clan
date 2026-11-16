@@ -230,6 +230,8 @@ public class SlayClanPlugin extends Plugin
 	private PersonalBestReader personalBestReader;
 	// Logged once per login, as every event would otherwise repeat it
 	private boolean postingBlockedLogged;
+	// Read once per login on the client thread, since canPost also runs on the executor
+	private volatile boolean mainGameWorld = true;
 	// Each said once per login and once per settings change, as every post would otherwise repeat it
 	private final Set<BotReply.Blocker> blockersSaid = ConcurrentHashMap.newKeySet();
 	private final AtomicBoolean clanConfigChanged = new AtomicBoolean();
@@ -393,6 +395,7 @@ public class SlayClanPlugin extends Plugin
 		thresholdCheckPending = true;
 		setupWarningPending = true;
 		loginTick = client.getTickCount();
+		mainGameWorld = MainGameWorld.sharesMainGameProgress(client.getWorldType());
 	}
 
 	@Subscribe
@@ -1464,7 +1467,7 @@ public class SlayClanPlugin extends Plugin
 
 	private boolean onMainGameWorld()
 	{
-		return MainGameWorld.sharesMainGameProgress(client.getWorldType());
+		return mainGameWorld;
 	}
 
 	private String clanToken()
@@ -1496,7 +1499,7 @@ public class SlayClanPlugin extends Plugin
 		}
 		if (!onMainGameWorld())
 		{
-			warnInChat("Slay Clan: nothing is posted on this world type. Deadman, Leagues, speedrun, tournament and beta worlds do not count.");
+			warnInChat("Slay Clan: nothing is posted on this world type. Deadman, Leagues, speedrun, tournament and beta worlds do not count. Posts waiting for a retry are sent when you are back on a normal world.");
 		}
 		int dropped = pendingPostStore.takeDroppedCount();
 		if (dropped > 0)

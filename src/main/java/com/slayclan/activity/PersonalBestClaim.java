@@ -11,9 +11,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum PersonalBestClaim
 {
-	NEW_RECORD(true),
-	FASTEST_AT_SCALE(false),
-	CURRENT(false);
+	NEW_RECORD(true, false),
+	FASTEST_AT_SCALE(false, false),
+	// The game's remembered time, reported for the board rather than for this kill
+	CURRENT(false, true);
 
 	private final boolean newRecord;
+	private final boolean storedBest;
 }

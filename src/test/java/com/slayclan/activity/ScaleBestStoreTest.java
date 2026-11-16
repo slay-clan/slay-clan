@@ -72,7 +72,7 @@ public class ScaleBestStoreTest
 	}
 
 	@Test
-	public void savesASeasonKillUnderTheSeasonAndAKillWithoutASeasonUnderTheOldKey()
+	public void savesASeasonKillUnderTheSeasonAndAKillWithoutASeasonInTheMemorySinceInstall()
 	{
 		store.forSeason("2026-11-16").saveBest(42L, "Yama", Kind.SINGLE, 1, 330.0);
 		store.saveBest(42L, "Yama", Kind.SINGLE, 1, 300.0);

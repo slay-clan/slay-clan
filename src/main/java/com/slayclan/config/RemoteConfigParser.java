@@ -139,7 +139,7 @@ public class RemoteConfigParser
 	private static String string(JsonObject root, String key)
 	{
 		JsonElement value = root.get(key);
-		return value == null || value.isJsonNull() ? null : value.getAsString();
+		return value == null || !value.isJsonPrimitive() ? null : value.getAsString();
 	}
 
 	private static boolean isBlank(String value)
