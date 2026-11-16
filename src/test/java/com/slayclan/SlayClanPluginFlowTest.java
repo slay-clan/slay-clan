@@ -15,6 +15,7 @@ import com.slayclan.discord.PostPayload;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import net.runelite.api.ChatMessageType;
+import net.runelite.api.WorldType;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.GameState;
@@ -150,6 +152,7 @@ public class SlayClanPluginFlowTest
 		when(configManager.getProfile()).thenReturn(syncedProfile);
 		when(pluginManager.getPlugins()).thenReturn(List.of());
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
 		when(localPlayer.getName()).thenReturn(ME);
 		when(client.getTickCount()).thenAnswer(invocation -> tick);
 		when(client.getAccountHash()).thenReturn(1L);
@@ -981,6 +984,48 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		verify(botClient, never()).send(any(), any(), (byte[]) any());
+	}
+
+	@Test
+	public void postsNothingAndSaysSoInChatOnADeadmanWorld()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS, WorldType.DEADMAN));
+
+		login();
+		ticks(16);
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(botClient, never()).send(any(), any(), (byte[]) any());
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("nothing is posted on this world type"), isNull());
+	}
+
+	@Test
+	public void stopsPostingAfterHoppingToADeadmanWorldAndResumesBackOnMainGame()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		login();
+		ticks(16);
+
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS, WorldType.DEADMAN));
+		gameState(GameState.HOPPING);
+		gameState(GameState.LOGGED_IN);
+		ticks(16);
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+		assertEquals(List.of(), postedTasks());
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("nothing is posted on this world type"), isNull());
+
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
+		gameState(GameState.HOPPING);
+		gameState(GameState.LOGGED_IN);
+		ticks(16);
+		chat("Your completed Theatre of Blood count is: <col=ff0000>6</col>.");
+		ticks(3);
+		assertEquals(List.of("Any Raid"), postedTasks());
 	}
 
 	@Test

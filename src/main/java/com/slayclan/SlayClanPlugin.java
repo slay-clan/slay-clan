@@ -12,6 +12,7 @@ import com.slayclan.activity.PersonalBestClaim;
 import com.slayclan.activity.PersonalBestReader;
 import com.slayclan.activity.ScaleBestStore;
 import com.slayclan.clan.ClanMembershipChecker;
+import com.slayclan.clan.MainGameWorld;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
 import com.slayclan.config.SecretSafeUrl;
@@ -1420,12 +1421,13 @@ public class SlayClanPlugin extends Plugin
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && hasSecretSafeBotUrl() && !clanToken().isEmpty() && profileSyncsToAccount();
+		boolean canPost = config.enabled() && hasSecretSafeBotUrl() && !clanToken().isEmpty() && profileSyncsToAccount()
+			&& onMainGameWorld();
 		if (!canPost && !postingBlockedLogged)
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, bot URL usable={}, clan token set={}, profile synced={}",
-				config.enabled(), hasSecretSafeBotUrl(), !clanToken().isEmpty(), profileSyncsToAccount());
+			log.info("Posting blocked: enabled={}, bot URL usable={}, clan token set={}, profile synced={}, main game world={}",
+				config.enabled(), hasSecretSafeBotUrl(), !clanToken().isEmpty(), profileSyncsToAccount(), onMainGameWorld());
 		}
 		return canPost;
 	}
@@ -1451,6 +1453,11 @@ public class SlayClanPlugin extends Plugin
 	{
 		ConfigProfile profile = configManager.getProfile();
 		return profile != null && profile.isSync();
+	}
+
+	private boolean onMainGameWorld()
+	{
+		return MainGameWorld.sharesMainGameProgress(client.getWorldType());
 	}
 
 	private String clanToken()
@@ -1479,6 +1486,10 @@ public class SlayClanPlugin extends Plugin
 		if (!profileSyncsToAccount())
 		{
 			warnInChat("Slay Clan: log in with a RuneLite account and turn on Sync for this profile in the profile panel, otherwise nothing is posted.");
+		}
+		if (!onMainGameWorld())
+		{
+			warnInChat("Slay Clan: nothing is posted on this world type. Deadman, Leagues, speedrun, tournament and beta worlds do not count.");
 		}
 		int dropped = pendingPostStore.takeDroppedCount();
 		if (dropped > 0)
