@@ -80,14 +80,14 @@ public class ActivityReporter
 		});
 	}
 
-	public void reportClog(BotTarget target, String account, String item, int itemId, int quantity, int logSlots)
+	public void reportClog(BotTarget target, Account account, String item, int itemId, int quantity, int logSlots)
 	{
-		send(target, formatter.clogEvent(account, item, itemId, quantity, logSlots, Instant.now()), null);
+		send(target, account.stamp(formatter.clogEvent(account.getName(), item, itemId, quantity, logSlots, Instant.now())), null);
 	}
 
-	public void reportCa(BotTarget target, String account, String task, int taskId, String tier)
+	public void reportCa(BotTarget target, Account account, String task, int taskId, String tier)
 	{
-		send(target, formatter.caEvent(account, task, taskId, tier, Instant.now()), null);
+		send(target, account.stamp(formatter.caEvent(account.getName(), task, taskId, tier, Instant.now())), null);
 	}
 
 	public void reportStatusIfChanged(BotTarget target, String account, long accountHash, CombatAchievementStatus ca,

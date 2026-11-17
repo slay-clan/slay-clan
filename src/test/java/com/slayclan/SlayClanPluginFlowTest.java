@@ -1072,6 +1072,21 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void taskAndPersonalBestPostsCarryTheGamesAccountIdSoARenameCanBeRecognised()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		login();
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
+		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
+		ticks(3);
+
+		assertEquals("1", posted("task").get(0).getAccountHash());
+		assertEquals("1", posted("pb").get(0).getAccountHash());
+	}
+
+	@Test
 	public void postsNothingAndAsksForTheBotUrlInChatWhenTheSettingIsEmpty()
 	{
 		tasks(task("any-raid", "RAID:*", null, 0, false));

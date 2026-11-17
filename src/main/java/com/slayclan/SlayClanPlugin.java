@@ -1,5 +1,6 @@
 package com.slayclan;
 
+import com.slayclan.activity.Account;
 import com.slayclan.activity.ActivityFormatter;
 import com.slayclan.activity.ActivityReporter;
 import com.slayclan.activity.CollectionLogCapture;
@@ -787,7 +788,7 @@ public class SlayClanPlugin extends Plugin
 		{
 			return;
 		}
-		activityReporter.reportClog(target, account(), item, itemId(item), 1, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
+		activityReporter.reportClog(target, playingAccount(), item, itemId(item), 1, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 	}
 
 	private void reportCombatAchievement(CombatAchievement achievement)
@@ -797,7 +798,7 @@ public class SlayClanPlugin extends Plugin
 		{
 			return;
 		}
-		activityReporter.reportCa(target, account(), achievement.getName(), achievement.getId(), achievement.getTier());
+		activityReporter.reportCa(target, playingAccount(), achievement.getName(), achievement.getId(), achievement.getTier());
 	}
 
 	private int itemId(String name)
@@ -888,8 +889,9 @@ public class SlayClanPlugin extends Plugin
 			if (gameBestStillUnreported(accountHash, boss, best))
 			{
 				scaleBestStore.markGameBestReported(accountHash, boss);
-				activityReporter.send(target,
-					activityFormatter.currentBossBest(account(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now()), null);
+				Account account = playingAccount();
+				activityReporter.send(target, account.stamp(
+					activityFormatter.currentBossBest(account.getName(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now())), null);
 			}
 		}
 	}
@@ -907,7 +909,9 @@ public class SlayClanPlugin extends Plugin
 	private void postBest(BotTarget target, String boss, String time, TimedLine.Kind kind, int teamSize, List<String> party,
 		PersonalBestClaim claim)
 	{
-		PostPayload payload = activityFormatter.personalBest(account(), boss, time, kind, teamSize, party, claim, Instant.now());
+		Account account = playingAccount();
+		PostPayload payload = account.stamp(
+			activityFormatter.personalBest(account.getName(), boss, time, kind, teamSize, party, claim, Instant.now()));
 		if (claim == PersonalBestClaim.CURRENT)
 		{
 			activityReporter.send(target, payload, null);
@@ -1386,7 +1390,8 @@ public class SlayClanPlugin extends Plugin
 
 	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
 	{
-		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, payload, png)));
+		Account account = playingAccount();
+		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, account.stamp(payload), png)));
 	}
 
 	/**
@@ -1479,6 +1484,11 @@ public class SlayClanPlugin extends Plugin
 	{
 		Player localPlayer = client.getLocalPlayer();
 		return localPlayer == null || localPlayer.getName() == null ? "" : Text.sanitize(localPlayer.getName());
+	}
+
+	private Account playingAccount()
+	{
+		return new Account(account(), client.getAccountHash());
 	}
 
 	private void warnAboutSetup()

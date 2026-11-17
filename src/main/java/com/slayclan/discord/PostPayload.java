@@ -3,6 +3,7 @@ package com.slayclan.discord;
 import java.util.List;
 import java.util.Map;
 import lombok.Value;
+import lombok.With;
 
 /**
  * A post as the clan bot reads it: the kind, a nonce that makes a retry safe, the account it was made on and
@@ -11,6 +12,7 @@ import lombok.Value;
  * not sent and not kept for a retry.
  */
 @Value
+@With
 public class PostPayload
 {
 	String kind;

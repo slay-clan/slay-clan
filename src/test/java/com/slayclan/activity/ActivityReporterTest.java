@@ -99,11 +99,12 @@ public class ActivityReporterTest
 	@Test
 	public void sendsAClogEventWithoutScreenshot()
 	{
-		reporter.reportClog(TARGET, "Clanmate", "Vorki", 21992, 1, 141);
+		reporter.reportClog(TARGET, new Account("Clanmate", 42L), "Vorki", 21992, 1, 141);
 
 		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
 		verify(botClient).send(eq(TARGET), payload.capture(), isNull());
 		assertEquals("Vorki", payload.getValue().getFields().get("Item"));
+		assertEquals("42", payload.getValue().getAccountHash());
 	}
 
 	@Test
@@ -111,11 +112,12 @@ public class ActivityReporterTest
 	{
 		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
-		reporter.reportCa(TARGET, "Clanmate", "Into the Den of Giants", 398, "Easy");
+		reporter.reportCa(TARGET, new Account("Clanmate", 42L), "Into the Den of Giants", 398, "Easy");
 
 		ArgumentCaptor<PostPayload> kept = ArgumentCaptor.forClass(PostPayload.class);
 		verify(pendingPostStore).add(kept.capture(), any());
 		assertEquals("ca", kept.getValue().getKind());
+		assertEquals("42", kept.getValue().getAccountHash());
 	}
 
 	@Test
