@@ -7,7 +7,7 @@ import okhttp3.HttpUrl;
  * Where a request that carries a secret, the clan token or the config URL, may go: over TLS, or in plain
  * http only to this computer, where nothing can sit in between, which lets a local test bot and config server
  * work. Decided on the parsed URL, since a prefix check is fooled by userinfo such as
- * {@code http://localhost:@evil.example/}.
+ * {@code localhost:@evil.example} after the scheme.
  */
 public final class SecretSafeUrl
 {

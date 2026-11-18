@@ -8,14 +8,37 @@ on:
     - cron: '0 6 * * 4'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: '11'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - run: ./gradlew build
+
+  hub-rules:
+    name: Plugin Hub rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: No reflection, process execution, class loading, serialization, raw sockets or input injection
+        # A tripwire against a careless change, not a proof: the patterns in .github/forbidden-apis.txt also hit
+        # comments and strings, which is accepted so that the build fails closed
+        run: |
+          if grep -rnEf .github/forbidden-apis.txt src/main; then
+            echo "::error::The plugin uses an API the Plugin Hub rejects, see AGENTS.md and .github/forbidden-apis.txt"
+            exit 1
+          fi
+      - name: No address in the code, posts go only to the two URLs the player pastes into the settings
+        run: |
+          if grep -rnE "(https?|wss?)://[A-Za-z0-9]" src/main; then
+            echo "::error::The plugin must not contain an http(s) or websocket address; the bot and config URLs come from the settings"
+            exit 1
+          fi

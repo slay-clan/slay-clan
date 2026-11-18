@@ -1,0 +1,21 @@
+name: Dependency review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: on-failure
+          # Waits for the Gradle snapshot from the Dependency submission workflow on the same commit
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 600
