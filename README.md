@@ -30,7 +30,7 @@ PvP loot and loot keys never count. Nothing is posted on Deadman, Leagues, speed
 
 ![A clan task awaiting review in the clan Discord](docs/images/review-post.png)
 
-Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window, chat included. Nothing else is sent. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
+Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window. Your private messages are left out of it by default, and **Chat in screenshots** can hide the whole chatbox, private messages included, or show everything; hiding only the private messages needs "Split friends private chat" on in the game settings. Nothing else is sent. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
 
 ## What the plugin cannot see
 
