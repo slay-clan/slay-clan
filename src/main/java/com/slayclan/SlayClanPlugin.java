@@ -141,6 +141,7 @@ public class SlayClanPlugin extends Plugin
 		"count is", "collection log", "combat task", "duration", "completion time", "delve level", "funny feeling", "backpack");
 	// The varbit combines two game settings: 1 = "New addition notification" (chat), 2 = "New addition popup"
 	private static final int COLLECTION_LOG_CHAT_BIT = 1;
+	// Only the clan config URL and the posting switch change which clan config applies
 	private static final Set<String> CLAN_CONFIG_KEYS = Set.of(SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY);
 	private static final Set<String> POSTING_KEYS = Set.of(
 		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY, SlayClanConfig.BOT_URL_KEY);
@@ -321,7 +322,6 @@ public class SlayClanPlugin extends Plugin
 		return SlayClanConfig.GROUP.equals(event.getGroup()) && POSTING_KEYS.contains(event.getKey());
 	}
 
-	// Only the clan config URL and the posting switch change which clan config applies
 	private void followSettingsChange()
 	{
 		clientThread.invoke(this::warnAboutTheBotUrlWhileLoggedIn);
@@ -345,10 +345,15 @@ public class SlayClanPlugin extends Plugin
 
 	private void warnIfBotUrlUnusable()
 	{
-		if (config.enabled() && !hasSecretSafeBotUrl())
+		if (postingWantedButBotUrlUnusable())
 		{
 			warnInChat("Slay Clan: paste the clan bot URL from the clan Discord into the plugin settings, otherwise nothing is posted. It must start with https://.");
 		}
+	}
+
+	private boolean postingWantedButBotUrlUnusable()
+	{
+		return config.enabled() && !hasSecretSafeBotUrl();
 	}
 
 	/**

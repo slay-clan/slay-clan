@@ -25,7 +25,7 @@ public class AccountTest
 	}
 
 	@Test
-	public void stampingKeepsTheQuietReceiptFlag()
+	public void aPostThatKeepsItsReceiptOutOfTheChatStillDoesSoAfterTheAccountIsStamped()
 	{
 		assertTrue(new Account("Clanmate", 42L).stamp(post).isReceiptQuiet());
 	}

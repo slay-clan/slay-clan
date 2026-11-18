@@ -204,15 +204,20 @@ public class BotClient
 		return response.isRedirect() || response.code() == NOT_FOUND;
 	}
 
-	// A host that does not resolve or refuses the connection is a wrong address or a bot that is down; a slow
-	// answer is neither and is simply retried later
+	// A slow answer is neither a wrong address nor a bot that is down, so it is simply retried later
 	private static BotReply noAnswer(IOException e)
 	{
-		if (e instanceof UnknownHostException || e instanceof ConnectException)
+		if (hostNotThere(e))
 		{
 			return BotReply.blocked(BotReply.Blocker.UNREACHABLE, UNREACHABLE);
 		}
 		return BotReply.undelivered(null);
+	}
+
+	// A host that does not resolve or refuses the connection is a wrong address or a bot that is down
+	private static boolean hostNotThere(IOException e)
+	{
+		return e instanceof UnknownHostException || e instanceof ConnectException;
 	}
 
 	// Bookkeeping posts are sent quietly; only what the member did right now, or anything that went wrong, is said in chat

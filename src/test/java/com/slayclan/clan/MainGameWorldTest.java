@@ -29,11 +29,10 @@ public class MainGameWorldTest
 	}
 
 	@Test
-	public void minigameThemedWorldsCountAsMainGame()
+	public void postingStaysOnOnMinigameWorldsThatShareMainGameProgress()
 	{
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.LAST_MAN_STANDING)));
 		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.PVP_ARENA)));
-		assertTrue(MainGameWorld.sharesMainGameProgress(EnumSet.of(WorldType.MEMBERS, WorldType.FRESH_START_WORLD)));
 	}
 
 	@Test

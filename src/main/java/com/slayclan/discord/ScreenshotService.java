@@ -56,12 +56,17 @@ public class ScreenshotService
 	private boolean hidePrivateMessages()
 	{
 		Widget privateMessages = client.getWidget(InterfaceID.PmChat.CONTAINER);
-		if (!config.hidePrivateMessages() || !isShowing(privateMessages))
+		if (nothingToHide(privateMessages))
 		{
 			return false;
 		}
 		privateMessages.setHidden(true);
 		return true;
+	}
+
+	private boolean nothingToHide(Widget privateMessages)
+	{
+		return !config.hidePrivateMessages() || !isShowing(privateMessages);
 	}
 
 	private static boolean isShowing(Widget widget)

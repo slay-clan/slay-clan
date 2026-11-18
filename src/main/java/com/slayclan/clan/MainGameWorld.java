@@ -19,8 +19,7 @@ public final class MainGameWorld
 		WorldType.HIGH_RISK,
 		WorldType.HARDCORE_MAIN,
 		WorldType.LAST_MAN_STANDING,
-		WorldType.PVP_ARENA,
-		WorldType.FRESH_START_WORLD
+		WorldType.PVP_ARENA
 	);
 
 	private MainGameWorld()
