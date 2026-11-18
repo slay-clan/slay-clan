@@ -1,6 +1,5 @@
 package com.slayclan;
 
-import com.slayclan.discord.ChatInScreenshot;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -15,7 +14,7 @@ public interface SlayClanConfig extends Config
 	String CONFIG_URL_KEY = "configUrl";
 	String CLAN_TOKEN_KEY = "clanToken";
 	String BOT_URL_KEY = "botUrl";
-	String CHAT_IN_SCREENSHOT_KEY = "chatInScreenshot";
+	String HIDE_PRIVATE_MESSAGES_KEY = "hidePrivateMessages";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
@@ -64,13 +63,13 @@ public interface SlayClanConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = CHAT_IN_SCREENSHOT_KEY,
-		name = "Chat in screenshots",
-		description = "What the chat shows in posted screenshots. Hiding private messages needs \"Split friends private chat\" on in the game settings, otherwise they sit in the chatbox. The chat flickers once per screenshot",
+		keyName = HIDE_PRIVATE_MESSAGES_KEY,
+		name = "Hide private messages",
+		description = "Leaves your private messages out of posted screenshots. Needs \"Split friends private chat\" on in the game settings, otherwise they sit in the chatbox. The chat flickers once per screenshot",
 		position = 4
 	)
-	default ChatInScreenshot chatInScreenshot()
+	default boolean hidePrivateMessages()
 	{
-		return ChatInScreenshot.HIDE_PRIVATE_MESSAGES;
+		return true;
 	}
 }

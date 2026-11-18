@@ -5,10 +5,6 @@ import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import javax.imageio.ImageIO;
@@ -45,28 +41,27 @@ public class ScreenshotService
 	{
 		clientThread.invoke(() ->
 		{
-			List<Integer> hidden = hideChat(config.chatInScreenshot());
+			boolean hidden = hidePrivateMessages();
 			drawManager.requestNextFrameListener(image ->
 			{
-				clientThread.invoke(() -> show(hidden));
+				if (hidden)
+				{
+					clientThread.invoke(this::showPrivateMessages);
+				}
 				executor.submit(() -> onCaptured.accept(toPng(image)));
 			});
 		});
 	}
 
-	private List<Integer> hideChat(ChatInScreenshot mode)
+	private boolean hidePrivateMessages()
 	{
-		List<Integer> hidden = new ArrayList<>();
-		for (int componentId : componentsHiddenBy(mode))
+		Widget privateMessages = client.getWidget(InterfaceID.PmChat.CONTAINER);
+		if (!config.hidePrivateMessages() || !isShowing(privateMessages))
 		{
-			Widget widget = client.getWidget(componentId);
-			if (isShowing(widget))
-			{
-				widget.setHidden(true);
-				hidden.add(componentId);
-			}
+			return false;
 		}
-		return hidden;
+		privateMessages.setHidden(true);
+		return true;
 	}
 
 	private static boolean isShowing(Widget widget)
@@ -74,30 +69,13 @@ public class ScreenshotService
 		return widget != null && !widget.isHidden();
 	}
 
-	private static List<Integer> componentsHiddenBy(ChatInScreenshot mode)
-	{
-		switch (mode)
-		{
-			// Split private messages are their own interface above the chatbox, so hiding the chatbox alone leaves them
-			case HIDE_CHATBOX:
-				return Arrays.asList(InterfaceID.Chatbox.CHATAREA, InterfaceID.PmChat.CONTAINER);
-			case HIDE_PRIVATE_MESSAGES:
-				return Collections.singletonList(InterfaceID.PmChat.CONTAINER);
-			default:
-				return Collections.emptyList();
-		}
-	}
-
 	// Looked up again rather than kept, since the game may have rebuilt the interface while the frame was drawn
-	private void show(List<Integer> componentIds)
+	private void showPrivateMessages()
 	{
-		for (int componentId : componentIds)
+		Widget privateMessages = client.getWidget(InterfaceID.PmChat.CONTAINER);
+		if (privateMessages != null)
 		{
-			Widget widget = client.getWidget(componentId);
-			if (widget != null)
-			{
-				widget.setHidden(false);
-			}
+			privateMessages.setHidden(false);
 		}
 	}
 

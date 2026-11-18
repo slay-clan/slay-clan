@@ -18,13 +18,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -42,8 +42,6 @@ public class ScreenshotServiceTest
 	private ScheduledExecutorService executor;
 	@Mock
 	private SlayClanConfig config;
-	@Mock
-	private Widget chatbox;
 	@Mock
 	private Widget privateMessages;
 
@@ -63,16 +61,14 @@ public class ScreenshotServiceTest
 			invocation.<Runnable>getArgument(0).run();
 			return null;
 		}).when(executor).submit(any(Runnable.class));
-		when(client.getWidget(InterfaceID.Chatbox.CHATAREA)).thenReturn(chatbox);
 		when(client.getWidget(InterfaceID.PmChat.CONTAINER)).thenReturn(privateMessages);
+		when(config.hidePrivateMessages()).thenReturn(true);
 		service = new ScreenshotService(client, clientThread, drawManager, executor, config);
 	}
 
 	@Test
 	public void privateMessagesAreHiddenWhileTheFrameIsDrawnAndShownAgainAfterwards()
 	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.HIDE_PRIVATE_MESSAGES);
-
 		service.capture(captured::add);
 		drawFrame();
 
@@ -82,70 +78,39 @@ public class ScreenshotServiceTest
 		inOrder.verify(drawManager).requestNextFrameListener(any());
 		inOrder.verify(clientThread).invoke(any(Runnable.class));
 		inOrder.verify(privateMessages).setHidden(false);
-		verify(chatbox, never()).setHidden(true);
 		assertEquals(1, captured.size());
 		assertNotNull(captured.get(0));
 	}
 
 	@Test
-	public void theWholeChatboxIsHiddenWhenTheSettingSaysSo()
+	public void privateMessagesStayVisibleWhenTheSettingIsOff()
 	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.HIDE_CHATBOX);
+		when(config.hidePrivateMessages()).thenReturn(false);
 
 		service.capture(captured::add);
 		drawFrame();
 
-		verify(chatbox).setHidden(true);
-		verify(chatbox).setHidden(false);
-		verify(privateMessages).setHidden(true);
-		verify(privateMessages).setHidden(false);
-	}
-
-	@Test
-	public void theChatboxIsStillHiddenWhenThePrivateMessageInterfaceIsNotLoaded()
-	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.HIDE_CHATBOX);
-		when(client.getWidget(InterfaceID.PmChat.CONTAINER)).thenReturn(null);
-
-		service.capture(captured::add);
-		drawFrame();
-
-		verify(chatbox).setHidden(true);
-		verify(chatbox).setHidden(false);
-		assertEquals(1, captured.size());
-	}
-
-	@Test
-	public void nothingIsHiddenWhenTheChatMayShow()
-	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.SHOW_ALL);
-
-		service.capture(captured::add);
-		drawFrame();
-
-		verify(chatbox, never()).setHidden(true);
 		verify(privateMessages, never()).setHidden(true);
+		verify(clientThread, times(1)).invoke(any(Runnable.class));
 		assertEquals(1, captured.size());
 	}
 
 	@Test
-	public void aChatThePlayerHidThemselvesStaysHidden()
+	public void privateMessagesThePlayerHidThemselvesStayHidden()
 	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.HIDE_CHATBOX);
-		when(chatbox.isHidden()).thenReturn(true);
+		when(privateMessages.isHidden()).thenReturn(true);
 
 		service.capture(captured::add);
 		drawFrame();
 
-		verify(chatbox, never()).setHidden(true);
-		verify(chatbox, never()).setHidden(false);
+		verify(privateMessages, never()).setHidden(true);
+		verify(privateMessages, never()).setHidden(false);
 	}
 
 	@Test
-	public void theScreenshotIsStillTakenWhenTheChatInterfaceIsNotLoaded()
+	public void theScreenshotIsStillTakenWhenThePrivateMessageInterfaceIsNotLoaded()
 	{
-		when(config.chatInScreenshot()).thenReturn(ChatInScreenshot.HIDE_PRIVATE_MESSAGES);
-		when(client.getWidget(anyInt())).thenReturn(null);
+		when(client.getWidget(InterfaceID.PmChat.CONTAINER)).thenReturn(null);
 
 		service.capture(captured::add);
 		drawFrame();
