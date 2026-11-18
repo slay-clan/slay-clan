@@ -8,3 +8,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The Plugin Hub and the RuneLite example plugin build with Gradle 8.10
+      - dependency-name: gradle-wrapper
+      # OkHttp 5 next to the OkHttp 3.14 RuneLite ships is not worth it for a test server
+      - dependency-name: com.squareup.okhttp3:mockwebserver
+        update-types: ["version-update:semver-major"]
