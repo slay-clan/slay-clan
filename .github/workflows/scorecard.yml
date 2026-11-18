@@ -10,6 +10,7 @@ permissions: read-all
 
 jobs:
   analysis:
+    name: Scorecard
     runs-on: ubuntu-latest
     permissions:
       security-events: write
