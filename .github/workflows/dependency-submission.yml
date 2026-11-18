@@ -19,5 +19,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '11'
-      # GitHub's dependency graph cannot read build.gradle, so the resolved Gradle dependencies are submitted here
+      # GitHub's dependency graph cannot read build.gradle, so the resolved Gradle dependencies are submitted here.
+      # Only the runtime classpath counts: compileOnly and test pull in the whole RuneLite client, whose
+      # libraries ship with RuneLite and cannot be upgraded from this plugin
       - uses: gradle/actions/dependency-submission@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          dependency-graph-include-configurations: runtimeClasspath
