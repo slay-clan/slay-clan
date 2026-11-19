@@ -3,6 +3,7 @@ package com.slayclan;
 import com.slayclan.activity.Account;
 import com.slayclan.activity.ActivityFormatter;
 import com.slayclan.activity.ActivityReporter;
+import com.slayclan.activity.BotAnswers;
 import com.slayclan.activity.CollectionLogCapture;
 import com.slayclan.activity.CollectionLogReader;
 import com.slayclan.activity.CombatAchievementReader;
@@ -40,6 +41,7 @@ import com.slayclan.trigger.CombatAchievement;
 import com.slayclan.trigger.CombatAchievementDetector;
 import com.slayclan.trigger.DuplicatePetDetector;
 import com.slayclan.task.TaskMatcher;
+import com.slayclan.task.TaskRefusal;
 import com.slayclan.trigger.KillCountDetector;
 import com.slayclan.trigger.PersonalBest;
 import com.slayclan.trigger.PersonalBestDetector;
@@ -118,7 +120,7 @@ import net.runelite.client.util.Text;
 	description = "Posts completed Slay Clan tasks to the clan Discord",
 	tags = {"clan", "discord", "raids", "cox"}
 )
-public class SlayClanPlugin extends Plugin
+public class SlayClanPlugin extends Plugin implements BotAnswers
 {
 	private static final long CONFIG_REFRESH_MINUTES = 10;
 	// Lets the player finish typing a URL before it is fetched
@@ -236,6 +238,7 @@ public class SlayClanPlugin extends Plugin
 	private volatile boolean mainGameWorld = true;
 	// Each said once per login and once per settings change, as every post would otherwise repeat it
 	private final Set<BotReply.Blocker> blockersSaid = ConcurrentHashMap.newKeySet();
+	private final Set<String> refusedThisLogin = ConcurrentHashMap.newKeySet();
 	private final AtomicBoolean clanConfigChanged = new AtomicBoolean();
 	private boolean clogSettingCheckPending;
 	private boolean setupWarningPending;
@@ -253,7 +256,7 @@ public class SlayClanPlugin extends Plugin
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
-		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this::tell);
+		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this);
 		forgetTheRetiredDiscordNameSetting();
 		refreshTask = executor.scheduleAtFixedRate(
 			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), 0, CONFIG_REFRESH_MINUTES, TimeUnit.MINUTES);
@@ -286,6 +289,7 @@ public class SlayClanPlugin extends Plugin
 		recentTimes.clear();
 		recentPersonalBests.clear();
 		bossesReportedThisLogin.clear();
+		refusedThisLogin.clear();
 		lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
 		statusCheckPending = false;
 		caSnapshotPending = false;
@@ -396,6 +400,7 @@ public class SlayClanPlugin extends Plugin
 		caSnapshotPending = true;
 		pbSnapshotPending = true;
 		bossesReportedThisLogin.clear();
+		refusedThisLogin.clear();
 		collectionLogCapture.onLogin();
 		clogSettingCheckPending = true;
 		thresholdCheckPending = true;
@@ -708,12 +713,8 @@ public class SlayClanPlugin extends Plugin
 				{
 					singleItems.put(task.getId(), progress.iterator().next());
 				}
-				progressStore.saveLoggedItems(task.getId(), Set.of());
 			}
-			else
-			{
-				progressStore.saveLoggedItems(task.getId(), progress);
-			}
+			progressStore.saveLoggedItems(task.getId(), progress);
 		}
 		if (!completed.isEmpty())
 		{
@@ -1118,7 +1119,7 @@ public class SlayClanPlugin extends Plugin
 		for (TaskDefinition task : remoteConfig.getTasks())
 		{
 			Optional<Boolean> satisfied = thresholdSatisfied(task, worn, held, clogCount);
-			if (satisfied.isEmpty() || progressStore.isCompleted(task.getId()))
+			if (satisfied.isEmpty() || !stillOpen(task.getId()))
 			{
 				continue;
 			}
@@ -1257,12 +1258,8 @@ public class SlayClanPlugin extends Plugin
 				if (clogTaskEvaluator.isComplete(task, progress))
 				{
 					completed.add(task);
-					progressStore.saveLoggedItems(task.getId(), Set.of());
 				}
-				else
-				{
-					progressStore.saveLoggedItems(task.getId(), progress);
-				}
+				progressStore.saveLoggedItems(task.getId(), progressToKeep(task, progress));
 			});
 		}
 		if (completed.isEmpty())
@@ -1310,7 +1307,36 @@ public class SlayClanPlugin extends Plugin
 
 	private boolean notYetPosted(TaskDefinition task)
 	{
-		return !task.isOnce() || !progressStore.isCompleted(task.getId());
+		return !task.isOnce() || stillOpen(task.getId());
+	}
+
+	// A one-time task keeps its counted items, so one the bot refused for the member's setup completes again from
+	// the next item; a repeatable task starts over
+	private static Set<String> progressToKeep(TaskDefinition task, Set<String> progress)
+	{
+		return task.isOnce() ? progress : Set.of();
+	}
+
+	// A one-time task is open until the bot took it, and rests until the next login once the member's setup refused it
+	private boolean stillOpen(String taskId)
+	{
+		return !progressStore.isCompleted(taskId) && !refusedThisLogin.contains(taskId);
+	}
+
+	/**
+	 * A one-time task is marked done when it is posted, so it is not posted twice while the bot answers. A
+	 * refusal about the member's setup, a name not in the clan sheet or a rank too low, reopens it, so it posts
+	 * again once that is fixed; a refusal because the member already holds the task leaves it done.
+	 */
+	@Override
+	public void taskAnswered(String taskId, BotReply reply)
+	{
+		if (reply.isRecorded() || TaskRefusal.closesTheTask(reply))
+		{
+			return;
+		}
+		refusedThisLogin.add(taskId);
+		progressStore.clearCompleted(taskId);
 	}
 
 	private void warnIfCollectionLogChatDisabled()
@@ -1551,7 +1577,8 @@ public class SlayClanPlugin extends Plugin
 	}
 
 	// The bot answers on an HTTP thread, and the chat is only written from the client thread
-	private void tell(BotReply reply)
+	@Override
+	public void tell(BotReply reply)
 	{
 		if (reply.getMessage() == null || blockerAlreadySaid(reply))
 		{

@@ -31,6 +31,14 @@ public class TaskProgressStoreTest
 	}
 
 	@Test
+	public void clearingACompletedTaskForgetsTheFlag()
+	{
+		store.clearCompleted("fire-cape");
+
+		verify(configManager).unsetConfiguration("slayclanmemory", "completed.fire-cape");
+	}
+
+	@Test
 	public void readsCompletedFlag()
 	{
 		when(configManager.getConfiguration("slayclanmemory", "completed.fire-cape")).thenReturn("true");

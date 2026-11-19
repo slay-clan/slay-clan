@@ -115,7 +115,7 @@ public class ActivityFormatter
 	{
 		fields.put("Stored best", claim.isStoredBest() ? "yes" : "no");
 		return new PostPayload(PostKind.PB.getName(), Nonce.next(), account, null, at.toString(), fields, null,
-			claim.isStoredBest());
+			claim.isStoredBest(), null);
 	}
 
 	private static String timeType(TimedLine.Kind kind)
@@ -131,7 +131,7 @@ public class ActivityFormatter
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("Items", String.valueOf(entries.size()));
 		PostPayload payload = new PostPayload(kind.getName(), Nonce.next(), account, String.valueOf(accountHash), at.toString(),
-			fields, entries, false);
+			fields, entries, false, null);
 		return new Snapshot(payload, DeliveredSnapshots.fingerprint(gson.toJson(entries)));
 	}
 }

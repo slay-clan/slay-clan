@@ -32,7 +32,7 @@ public class MessageFormatter
 		{
 			fields.put("Party", String.join(", ", party));
 		}
-		return payload(PostKind.TASK, account, fields, completedAt);
+		return payload(PostKind.TASK, account, fields, completedAt).withTaskId(task.getId());
 	}
 
 	public PostPayload buildItemTask(String account, TaskDefinition task, String itemName, String source, Instant completedAt)
@@ -43,7 +43,7 @@ public class MessageFormatter
 		{
 			fields.put("Source", source);
 		}
-		return payload(PostKind.TASK, account, fields, completedAt);
+		return payload(PostKind.TASK, account, fields, completedAt).withTaskId(task.getId());
 	}
 
 	public PostPayload buildDrop(String account, ValuableDrop drop, String source, Instant completedAt)
@@ -59,7 +59,7 @@ public class MessageFormatter
 
 	public static PostPayload payload(PostKind kind, String account, Map<String, String> fields, Instant at)
 	{
-		return new PostPayload(kind.getName(), Nonce.next(), account, null, at.toString(), fields, null, false);
+		return new PostPayload(kind.getName(), Nonce.next(), account, null, at.toString(), fields, null, false, null);
 	}
 
 	private static Map<String, String> taskFields(TaskDefinition task)
