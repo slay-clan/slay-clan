@@ -30,7 +30,7 @@ The plugin refreshes the file at login, every 10 minutes and when its settings c
 | `trigger` | What completes the task, see below |
 | `tier` | Shown in the Discord post. Defaults to the group name |
 | `points` | Shown in the Discord post |
-| `once` | `true` posts the task at most once per account. Use it for every task that is not repeatable |
+| `once` | `true` posts the task at most once per account. Use it for every task that is not repeatable. A one-time task is also judged from what the game remembers, see [Tasks done before the plugin](#tasks-done-before-the-plugin) |
 | `minPlayers` | Minimum number of players for raid and boss tasks. Defaults to 1. Outside raids this counts everyone around you, so only use it with `clanOnly` |
 | `clanOnly` | Everyone in the party must be a clan member, see below. Defaults to `false` |
 
@@ -40,9 +40,9 @@ Names in triggers and item lists ignore case and apostrophes. A trigger or item 
 
 | Trigger | Fires when | Extra fields |
 |---|---|---|
-| `RAID:<raid>` | A raid is completed, for example `RAID:Chambers of Xeric`, `RAID:Chambers of Xeric Challenge Mode`, `RAID:Theatre of Blood`, `RAID:Theatre of Blood: Hard Mode`, `RAID:Tombs of Amascut`, `RAID:Tombs of Amascut: Expert Mode` or `RAID:Fractured Archive` | `minPlayers`, `maxTime`, `timeType`, `teamSize`, `minKillCount` |
-| `KILL:<boss>` | The game prints a kill count for that boss, for example `KILL:Yama` or `KILL:Vardorvis (Awakened)` | `minPlayers`, `maxTime`, `timeType`, `teamSize`, `minKillCount` |
-| `CA:<task>` | A combat achievement is completed, for example `CA:Perfect Olm (Trio)`. The game only announces this once. `CA:#<id>` matches the game's own id instead, which the plugin logs at each completion, so `CA:Perfect Olm (Trio)|CA:#512` survives a rename | `clanOnly` |
+| `RAID:<raid>` | A raid is completed, for example `RAID:Chambers of Xeric`, `RAID:Chambers of Xeric Challenge Mode`, `RAID:Theatre of Blood`, `RAID:Theatre of Blood: Hard Mode`, `RAID:Tombs of Amascut`, `RAID:Tombs of Amascut: Expert Mode` or `RAID:Fractured Archive`. A one-time task is also judged from the stored personal bests after login | `minPlayers`, `maxTime`, `timeType`, `teamSize`, `minKillCount` |
+| `KILL:<boss>` | The game prints a kill count for that boss, for example `KILL:Yama` or `KILL:Vardorvis (Awakened)`. A one-time task is also judged from the stored personal bests after login | `minPlayers`, `maxTime`, `timeType`, `teamSize`, `minKillCount` |
+| `CA:<task>` | A combat achievement is completed, for example `CA:Perfect Olm (Trio)`. The game only announces this once. `CA:#<id>` matches the game's own id instead, which the plugin logs at each completion, so `CA:Perfect Olm (Trio)|CA:#512` survives a rename. A one-time task is also judged from the completed achievements after login | `clanOnly` |
 | `CLOG` | A new item is added to the collection log | `items`, `required` |
 | `LOOT` | The Loot Tracker reports one of the items | `items`, `sources` |
 | `DROP` | A single item worth at least `minValue` is dropped | `minValue`, `valuePerPoint`, `includeStackable` |
@@ -62,7 +62,7 @@ Names in triggers and item lists ignore case and apostrophes. A trigger or item 
 | `timeType` | `"total"` (default) uses the total completion time in ToB, ToA and the Fractured Archive, `"challenge"` uses the time inside the rooms in ToB and ToA. The Fractured Archive prints only a total time. Other content prints a single time, which is used either way |
 | `teamSize` | Only counts with exactly this many players |
 | `minKillCount` | Only counts from this kill count on, for example `2` for a second Infernal cape |
-| `clanOnly` | For `RAID:`, `KILL:` and `CA:` tasks. `true` requires everyone in the party, or everyone around you outside raids, to be a clan member. Otherwise being in the clan yourself is enough |
+| `clanOnly` | For `RAID:`, `KILL:` and `CA:` tasks. `true` requires everyone in the party, or everyone around you outside raids, to be a clan member. Otherwise being in the clan yourself is enough. A clan-only task is only judged live, never from the game's records, since who was in the team cannot be told afterwards |
 | `items` | Item names for `CLOG`, `LOOT`, `EQUIP` and `HOLD` |
 | `required` | How many different items from `items` are needed. Defaults to 1, meaning any one of them. Every one-time task (`once: true`) is also judged on the whole collection log each time the player opens it, so items owned before the plugin was installed count, which is how `Pet Hoarder` and an already owned cape or pet are detected. A task completed by a single item is posted with that item named. A repeatable task is only judged per new item, since the whole log would complete it again at every opening |
 | `sources` | For `LOOT`. Loot sources that count, as named by the Loot Tracker. Leave out to accept any source |
@@ -89,4 +89,17 @@ Loot from other players (PvP) and from loot keys is never counted for `DROP` or 
 
 ## Thresholds and equipment
 
-The first time the plugin checks an `EQUIP`, `HOLD`, `XP:` or `CLOG_COUNT` task for an account, it only records whether the condition is already met. Players who already reached it before installing the plugin get no automatic post and submit those tasks manually. These tasks are always posted at most once.
+An `EQUIP`, `HOLD`, `XP:` or `CLOG_COUNT` task is posted as soon as the plugin sees the condition met, also when the player reached it before installing the plugin. These tasks are always posted at most once.
+
+## Tasks done before the plugin
+
+A one-time task is posted for work done before the plugin was installed whenever the game itself remembers it, so a member who installs the plugin late still gets the tasks the clan can verify:
+
+- Collection log tasks (`CLOG`) are judged on the whole log each time the player opens it.
+- Combat achievement tasks (`CA:`) are judged on the game's list of completed achievements after login.
+- Raid and boss tasks (`RAID:` and `KILL:`) are judged on the personal bests RuneLite stores after login; a stored best proves the kill, and a task with `maxTime` needs the best within it. RuneLite stores the time the game prints without a "total" prefix: the room time in the Theatre of Blood and the Tombs of Amascut, so only a `timeType: "challenge"` task is judged there, the one duration in the Chambers of Xeric, and the total time in the Fractured Archive. A raid best is stored per team size, so a task with `teamSize` is only judged by a best stored for exactly that size; a best stored for a range like "11-15 players" or a boss best, which carries no team size, only matches a task without `teamSize`. A task with `minKillCount` is left to the live run.
+- Threshold tasks are posted at the first check, see above.
+
+A `clanOnly` task is never judged this way. Repeatable tasks, `LOOT`, `DROP`, `PET_DUPLICATE`, `DELVE` and `CONTRACT:` tasks come only from the live game.
+
+The judgement runs a few seconds after login, once the game has reported the clan, and the first judgement of an account's achievements or personal bests counts every satisfied task, also one the plugin had already marked done, so a member whose earlier post was refused gets it posted again. The bot refuses a task the member already holds, which the plugin reports once in the chat and then remembers. A task posted or refused earlier in the same login is not posted again. Later judgements only post tasks that are still open.
