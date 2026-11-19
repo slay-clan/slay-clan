@@ -1,8 +1,8 @@
 package com.slayclan;
 
-import static org.junit.Assert.assertFalse;
 import com.google.gson.Gson;
 import com.slayclan.activity.CollectionLogCapture;
+import com.slayclan.activity.CombatAchievementReader;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
 import com.slayclan.config.TaskDefinition;
@@ -34,6 +34,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ScriptEvent;
+import net.runelite.api.StructComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
 import net.runelite.api.WorldView;
@@ -47,6 +48,7 @@ import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
@@ -55,6 +57,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.http.api.item.ItemPrice;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import org.junit.After;
@@ -135,7 +138,7 @@ public class SlayClanPluginFlowTest
 
 	private final RemoteConfig remoteConfig = new RemoteConfig();
 	private final Set<String> completed = new HashSet<>();
-	private final Set<String> baselined = new HashSet<>();
+	private final Set<String> judged = new HashSet<>();
 	private int tick = 100;
 
 	@Before
@@ -188,10 +191,10 @@ public class SlayClanPluginFlowTest
 		when(progressStore.isCompleted(anyString())).thenAnswer(invocation -> completed.contains(invocation.<String>getArgument(0)));
 		doAnswer(invocation -> completed.add(invocation.getArgument(0))).when(progressStore).markCompleted(anyString());
 		doAnswer(invocation -> completed.remove(invocation.<String>getArgument(0))).when(progressStore).clearCompleted(anyString());
-		when(progressStore.isBaselined(anyString(), anyLong()))
-			.thenAnswer(invocation -> baselined.contains(baselineKey(invocation.getArgument(0), invocation.getArgument(1))));
-		doAnswer(invocation -> baselined.add(baselineKey(invocation.getArgument(0), invocation.getArgument(1))))
-			.when(progressStore).markBaselined(anyString(), anyLong());
+		when(progressStore.isJudgedFromGameData(anyString(), anyLong()))
+			.thenAnswer(invocation -> judged.contains(judgementKey(invocation.getArgument(0), invocation.getArgument(1))));
+		doAnswer(invocation -> judged.add(judgementKey(invocation.getArgument(0), invocation.getArgument(1))))
+			.when(progressStore).markJudgedFromGameData(anyString(), anyLong());
 		plugin.startUp();
 	}
 
@@ -312,7 +315,7 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void firstThresholdCheckOnlyRecordsEquipmentAlreadyWorn()
+	public void capeAlreadyWornAtLoginIsPosted()
 	{
 		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
 		wearing("Quest point cape");
@@ -320,12 +323,12 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		assertTrue(postedTasksDropsAndBests().isEmpty());
+		assertEquals(List.of("Quest Completed"), postedTasks());
 		assertEquals(Set.of("quest-completed"), completed);
 	}
 
 	@Test
-	public void postsEquipmentWornAfterTheBaseline()
+	public void postsEquipmentWornAfterTheFirstCheck()
 	{
 		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
 		wearing();
@@ -337,23 +340,6 @@ public class SlayClanPluginFlowTest
 		ticks(1);
 
 		assertEquals(List.of("Quest Completed"), postedTasks());
-	}
-
-	@Test
-	public void baselineOnAnAltDoesNotMakeTheMainsCapeLookNew()
-	{
-		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
-		when(client.getAccountHash()).thenReturn(2L);
-		wearing();
-		login();
-		ticks(6);
-
-		when(client.getAccountHash()).thenReturn(1L);
-		wearing("Quest point cape");
-		login();
-		ticks(6);
-
-		assertTrue(postedTasksDropsAndBests().isEmpty());
 	}
 
 	@Test
@@ -1178,6 +1164,119 @@ public class SlayClanPluginFlowTest
 		assertTrue(completed.contains("cave-runner"));
 	}
 
+	@Test
+	public void combatAchievementDoneBeforeThePluginPostsItsTaskAfterLogin()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(6);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	@Test
+	public void storedPersonalBestUnderTheLimitPostsTheSpeedTaskAfterLogin()
+	{
+		TaskDefinition task = task("serpent-sprint", "KILL:Zulrah", "1:00", 0, false);
+		task.setOnce(true);
+		tasks(task);
+		storedPersonalBest("zulrah", 43.8);
+
+		login();
+		ticks(6);
+
+		assertEquals(List.of("Serpent Sprint"), postedTasks());
+	}
+
+	@Test
+	public void achievementTaskAlreadyMarkedDoneIsPostedAgainAtTheFirstLoginOnly()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+		completed.add("no-fluke");
+
+		login();
+		ticks(6);
+		login();
+		ticks(6);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	@Test
+	public void clanOnlyAchievementTaskIsNotPostedAtLoginForAnAchievementDoneEarlier()
+	{
+		TaskDefinition task = task("perfect-trio", "CA:Perfect Olm (Trio)", null, 0, true);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(400, "Perfect Olm (Trio)");
+
+		login();
+		ticks(6);
+
+		assertTrue(postedTasks().isEmpty());
+	}
+
+	@Test
+	public void achievementTaskWaitsForTheClanToBeKnownBeforeItIsPostedAtLogin()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+		when(client.getClanSettings()).thenReturn(null);
+
+		login();
+		ticks(6);
+		assertTrue(postedTasks().isEmpty());
+
+		when(client.getClanSettings()).thenReturn(clan);
+		ticks(1);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	@Test
+	public void achievementCompletedRightAfterLoginIsNotPostedASecondTimeFromTheGamesList()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		chat("CA_ID:398|Congratulations, you've completed a master combat task: @ach_comp@It Wasn't a Fluke</col> (6 points).");
+		ticks(6);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	// Ids 384 to 415 sit in the thirteenth completion varp, so one varp stub covers every test here
+	private void completedCombatAchievement(int id, String name)
+	{
+		StructComposition struct = mock(StructComposition.class);
+		when(struct.getIntValue(CombatAchievementReader.PARAM_ID)).thenReturn(id);
+		when(struct.getStringValue(CombatAchievementReader.PARAM_NAME)).thenReturn(name);
+		EnumComposition easy = mock(EnumComposition.class);
+		when(easy.getIntVals()).thenReturn(new int[]{7});
+		when(client.getEnum(CombatAchievementReader.TIER_ENUMS[0])).thenReturn(easy);
+		when(client.getStructComposition(7)).thenReturn(struct);
+		when(client.getVarpValue(VarPlayerID.CA_TASK_COMPLETED_12)).thenReturn(1 << (id % 32));
+	}
+
+	private void storedPersonalBest(String boss, double seconds)
+	{
+		when(configManager.getRSProfileKey()).thenReturn("rsprofile.abc");
+		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(List.of(boss));
+		when(configManager.getRSProfileConfiguration("personalbest", boss, double.class)).thenReturn(seconds);
+	}
+
 	private static VarbitChanged varbitChanged(int varbitId, int varpId)
 	{
 		VarbitChanged event = new VarbitChanged();
@@ -1299,9 +1398,9 @@ public class SlayClanPluginFlowTest
 		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
 	}
 
-	private static String baselineKey(String taskId, long accountHash)
+	private static String judgementKey(String source, long accountHash)
 	{
-		return taskId + "." + accountHash;
+		return source + "." + accountHash;
 	}
 
 	private static TaskDefinition task(String id, String trigger, String maxTime, int teamSize, boolean clanOnly)
