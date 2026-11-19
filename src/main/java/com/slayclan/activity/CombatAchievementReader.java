@@ -16,9 +16,9 @@ import net.runelite.api.gameval.VarbitID;
  */
 public class CombatAchievementReader
 {
-	static final int[] TIER_ENUMS = {3981, 3982, 3983, 3984, 3985, 3986};
-	static final int PARAM_ID = 1306;
-	static final int PARAM_NAME = 1308;
+	public static final int[] TIER_ENUMS = {3981, 3982, 3983, 3984, 3985, 3986};
+	public static final int PARAM_ID = 1306;
+	public static final int PARAM_NAME = 1308;
 	private static final String[] TIER_NAMES = {"Easy", "Medium", "Hard", "Elite", "Master", "Grandmaster"};
 	private static final int[] COMPLETED_PER_TIER = {
 		VarbitID.CA_TOTAL_TASKS_COMPLETED_EASY, VarbitID.CA_TOTAL_TASKS_COMPLETED_MEDIUM, VarbitID.CA_TOTAL_TASKS_COMPLETED_HARD,

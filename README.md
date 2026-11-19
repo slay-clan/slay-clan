@@ -34,7 +34,7 @@ Each post goes straight to the clan's bot with your token, in-game name, the tas
 
 ## What the plugin cannot see
 
-- **Tasks done before you installed it**, except collection log tasks, which are checked against your whole log when you open it. Submit the rest by hand.
+- **Tasks done before you installed it**, unless the game remembers them. Collection log tasks are checked against your whole log when you open it, combat achievement tasks against your completed achievements and raid, boss and speed tasks against your stored personal bests when you log in, and tasks for worn or held items, experience and collection log slots the first time the plugin looks. Clan-only tasks need the clan team present, so those count only live. Submit the rest by hand.
 - **Tasks outside the game**, like events, SOTW, BOTW, ROTM, recruiting and boosts. Submit those by hand as before.
 
 ## Reporting a bug
