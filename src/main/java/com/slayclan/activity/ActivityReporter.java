@@ -12,15 +12,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Sends posts to the bot and settles what comes back: the answer goes to the chat, a post the bot could not
  * take is kept for retry. Status and snapshots are only sent when their content differs from what the bot
- * last accepted for the account, and are not kept, since the next login or log opening sends a fresh one when
- * needed.
+ * last recorded for the account, and are not kept, since the next login or log opening sends a fresh one when
+ * needed; a refused one is sent again then too. A post that completes a task reports the bot's answer back,
+ * so a task the bot refused is not left looking done.
  */
 @Slf4j
 public class ActivityReporter
@@ -29,20 +29,20 @@ public class ActivityReporter
 	private final BotClient botClient;
 	private final PendingPostStore pendingPostStore;
 	private final DeliveredSnapshots deliveredSnapshots;
-	private final Consumer<BotReply> tell;
+	private final BotAnswers answers;
 	// A second check can run before the bot has answered the first send, so the fingerprint last sent per kind and
 	// account counts as delivered meanwhile, and only that one is remembered when the bot answers, however the
 	// answers are ordered
 	private final Map<String, String> lastSent = new ConcurrentHashMap<>();
 
 	public ActivityReporter(ActivityFormatter formatter, BotClient botClient, PendingPostStore pendingPostStore,
-		DeliveredSnapshots deliveredSnapshots, Consumer<BotReply> tell)
+		DeliveredSnapshots deliveredSnapshots, BotAnswers answers)
 	{
 		this.formatter = formatter;
 		this.botClient = botClient;
 		this.pendingPostStore = pendingPostStore;
 		this.deliveredSnapshots = deliveredSnapshots;
-		this.tell = tell;
+		this.answers = answers;
 	}
 
 	/**
@@ -67,10 +67,11 @@ public class ActivityReporter
 		PendingPost first = pending.get(0);
 		return botClient.send(target.get(), first.getPayload(), null).thenCompose(reply ->
 		{
-			tell.accept(reply);
+			answers.tell(reply);
 			if (reply.isDelivered())
 			{
 				pendingPostStore.remove(first);
+				settleTask(first.getTaskId(), reply);
 			}
 			if (reply.isBlocked())
 			{
@@ -129,10 +130,10 @@ public class ActivityReporter
 		lastSent.put(key, fingerprint);
 		botClient.send(target, payload, null).thenAccept(reply ->
 		{
-			tell.accept(reply);
-			if (!reply.isDelivered())
+			answers.tell(reply);
+			if (!reply.isRecorded())
 			{
-				log.info("{} not delivered, it is sent again next time", kind);
+				log.info("{} not recorded, it is sent again next time", kind);
 				lastSent.remove(key, fingerprint);
 			}
 			else if (lastSent.remove(key, fingerprint))
@@ -149,11 +150,21 @@ public class ActivityReporter
 
 	private void settle(BotReply reply, PostPayload payload)
 	{
-		tell.accept(reply);
+		answers.tell(reply);
 		if (!reply.isDelivered())
 		{
 			log.info("Keeping an undelivered {} post for retry", payload.getKind());
 			pendingPostStore.add(payload, Instant.now());
+			return;
+		}
+		settleTask(payload.getTaskId(), reply);
+	}
+
+	private void settleTask(String taskId, BotReply reply)
+	{
+		if (taskId != null)
+		{
+			answers.taskAnswered(taskId, reply);
 		}
 	}
 }

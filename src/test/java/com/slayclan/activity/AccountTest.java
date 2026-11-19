@@ -10,7 +10,7 @@ import org.junit.Test;
 public class AccountTest
 {
 	private final PostPayload post = new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-11-17T12:00:00Z",
-		Map.of("Task", "Any Kill"), null, true);
+		Map.of("Task", "Any Kill"), null, true, null);
 
 	@Test
 	public void aPostCarriesTheGamesIdForTheAccountItWasMadeOn()

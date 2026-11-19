@@ -9,7 +9,8 @@ import lombok.With;
  * A post as the clan bot reads it: the kind, a nonce that makes a retry safe, the account it was made on and
  * the fields of that kind. Snapshots carry their entries inline. Field names are the bot's contract. A quiet
  * post is bookkeeping the member did not cause right now, so its receipt stays out of the chat; the flag is
- * not sent and not kept for a retry.
+ * not sent and not kept for a retry. The task the post completes, if any, is not sent either; it lets the
+ * bot's answer settle the task.
  */
 @Value
 @With
@@ -23,6 +24,7 @@ public class PostPayload
 	Map<String, String> fields;
 	List<?> entries;
 	transient boolean quiet;
+	transient String taskId;
 
 	public boolean isReceiptQuiet()
 	{

@@ -40,6 +40,11 @@ public class TaskProgressStore
 		configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, COMPLETED_PREFIX + taskId, "true");
 	}
 
+	public void clearCompleted(String taskId)
+	{
+		configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, COMPLETED_PREFIX + taskId);
+	}
+
 	public Set<String> loggedItems(String taskId)
 	{
 		String stored = configManager.getConfiguration(SlayClanConfig.MEMORY_GROUP, CLOG_PREFIX + taskId);

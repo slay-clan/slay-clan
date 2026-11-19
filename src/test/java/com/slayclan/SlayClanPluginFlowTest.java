@@ -1,5 +1,6 @@
 package com.slayclan;
 
+import static org.junit.Assert.assertFalse;
 import com.google.gson.Gson;
 import com.slayclan.activity.CollectionLogCapture;
 import com.slayclan.config.RemoteConfig;
@@ -176,8 +177,8 @@ public class SlayClanPluginFlowTest
 		when(clan.getName()).thenReturn("Slay Clan");
 		when(clan.findMember(ME)).thenReturn(mock(ClanMember.class));
 		when(participantReader.read(anyString())).thenReturn(List.of(ME));
-		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
-		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
 		doAnswer(invocation ->
 		{
 			Consumer<byte[]> onCaptured = invocation.getArgument(0);
@@ -186,6 +187,7 @@ public class SlayClanPluginFlowTest
 		}).when(screenshotService).capture(any());
 		when(progressStore.isCompleted(anyString())).thenAnswer(invocation -> completed.contains(invocation.<String>getArgument(0)));
 		doAnswer(invocation -> completed.add(invocation.getArgument(0))).when(progressStore).markCompleted(anyString());
+		doAnswer(invocation -> completed.remove(invocation.<String>getArgument(0))).when(progressStore).clearCompleted(anyString());
 		when(progressStore.isBaselined(anyString(), anyLong()))
 			.thenAnswer(invocation -> baselined.contains(baselineKey(invocation.getArgument(0), invocation.getArgument(1))));
 		doAnswer(invocation -> baselined.add(baselineKey(invocation.getArgument(0), invocation.getArgument(1))))
@@ -1123,7 +1125,7 @@ public class SlayClanPluginFlowTest
 	{
 		tasks(task("any-raid", "RAID:*", null, 0, false));
 		when(botClient.send(any(), any(), (byte[]) any()))
-			.thenReturn(CompletableFuture.completedFuture(BotReply.delivered("Not recorded: already completed.")));
+			.thenReturn(CompletableFuture.completedFuture(BotReply.refused("Not recorded: already completed.", "already completed.")));
 
 		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
 		ticks(3);
@@ -1131,6 +1133,49 @@ public class SlayClanPluginFlowTest
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Slay Clan: Not recorded: already completed."), isNull());
 		verify(pendingPostStore, never()).add(any(), any());
+	}
+
+	@Test
+	public void oneTimeTaskRefusedForTheMembersSetupPostsAgainAfterTheNextLogin()
+	{
+		TaskDefinition task = task("cave-runner", "KILL:TzTok-Jad", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.refused(
+			"Clan task not recorded: Me is not listed as your account in SC Members.", "Me is not listed as your account in SC Members.")));
+
+		chat("Your TzTok-Jad kill count is: <col=ff0000>1</col>.");
+		ticks(3);
+		chat("Your TzTok-Jad kill count is: <col=ff0000>2</col>.");
+		ticks(3);
+
+		assertEquals(List.of("Cave Runner"), postedTasks());
+		assertFalse(completed.contains("cave-runner"));
+
+		login();
+		chat("Your TzTok-Jad kill count is: <col=ff0000>3</col>.");
+		ticks(3);
+
+		assertEquals(List.of("Cave Runner", "Cave Runner"), postedTasks());
+	}
+
+	@Test
+	public void oneTimeTaskTheMemberAlreadyHoldsStaysDone()
+	{
+		TaskDefinition task = task("cave-runner", "KILL:TzTok-Jad", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(
+			BotReply.refused("Clan task not recorded: you already have it approved.", "you already have it approved.")));
+
+		chat("Your TzTok-Jad kill count is: <col=ff0000>1</col>.");
+		ticks(3);
+		login();
+		chat("Your TzTok-Jad kill count is: <col=ff0000>2</col>.");
+		ticks(3);
+
+		assertEquals(List.of("Cave Runner"), postedTasks());
+		assertTrue(completed.contains("cave-runner"));
 	}
 
 	private static VarbitChanged varbitChanged(int varbitId, int varpId)
@@ -1251,7 +1296,7 @@ public class SlayClanPluginFlowTest
 
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false);
+		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
 	}
 
 	private static String baselineKey(String taskId, long accountHash)

@@ -27,11 +27,11 @@ public class BotClientTest
 	public final MockWebServer server = new MockWebServer();
 
 	private final PostPayload task = new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Task", "Clan Raid", "Tier", "Repeatable"), null, false);
+		Map.of("Task", "Clan Raid", "Tier", "Repeatable"), null, false, null);
 	private final PostPayload clog = new PostPayload("clog", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Item", "Vorki"), null, false);
+		Map.of("Item", "Vorki"), null, false, null);
 	private final PostPayload currentBest = new PostPayload("pb", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Boss", "Zulrah", "New", "no"), null, true);
+		Map.of("Boss", "Zulrah", "New", "no"), null, true, null);
 
 	private ScheduledExecutorService executor;
 	private BotClient client;
@@ -193,6 +193,7 @@ public class BotClientTest
 		BotReply reply = send(task, new byte[]{1, 2, 3});
 
 		assertTrue(reply.isDelivered());
+		assertTrue(reply.isRefused());
 		assertTrue(reply.getMessage().contains("too large"));
 		assertEquals(1, server.getRequestCount());
 	}
@@ -253,6 +254,25 @@ public class BotClientTest
 
 		assertTrue(reply.isDelivered());
 		assertEquals("The nonce must be 16 hex characters.", reply.getMessage());
+	}
+
+	@Test
+	public void refusedAnswerCarriesTheBotsReason() throws Exception
+	{
+		server.enqueue(json(200, "{\"status\":\"refused\",\"message\":\"Clan task not recorded: you already have it approved.\",\"reason\":\"you already have it approved.\"}"));
+
+		BotReply reply = send(task, null);
+
+		assertTrue(reply.isRefused());
+		assertEquals("you already have it approved.", reply.getReason());
+	}
+
+	@Test
+	public void recordedAnswerCountsAsRecorded() throws Exception
+	{
+		server.enqueue(recorded());
+
+		assertTrue(send(task, null).isRecorded());
 	}
 
 	private BotReply send(PostPayload payload, byte[] png) throws Exception
