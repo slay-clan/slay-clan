@@ -3,6 +3,7 @@ package com.slayclan.clan;
 import java.util.List;
 import net.runelite.api.clan.ClanMember;
 import net.runelite.api.clan.ClanSettings;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import org.junit.Before;
@@ -71,6 +72,33 @@ public class ClanMembershipCheckerTest
 	public void rejectsClanCheckWithoutClanSettings()
 	{
 		assertFalse(checker.isClan(null, "SlayClan"));
+	}
+
+	@Test
+	public void teamOfClanMembersOnlyIsAWholeClanTeamNamingEveryone()
+	{
+		ClanTeam team = checker.team(clan, "SlayClan", List.of("Clanmate", "Raidbuddy"));
+
+		assertEquals(List.of("Clanmate", "Raidbuddy"), team.getClanMembers());
+		assertTrue(team.isWholeTeamInClan());
+	}
+
+	@Test
+	public void teamWithAnOutsiderIsNoClanTeamAndLeavesTheOutsiderUnnamed()
+	{
+		ClanTeam team = checker.team(clan, "SlayClan", List.of("Clanmate", "Zezima", "Raidbuddy"));
+
+		assertEquals(List.of("Clanmate", "Raidbuddy"), team.getClanMembers());
+		assertFalse(team.isWholeTeamInClan());
+	}
+
+	@Test
+	public void teamSeenFromAnotherClanNamesNobodyAndIsNoClanTeam()
+	{
+		ClanTeam team = checker.team(clan, "OtherClan", List.of("Clanmate", "Raidbuddy"));
+
+		assertEquals(List.of(), team.getClanMembers());
+		assertFalse(team.isWholeTeamInClan());
 	}
 
 	@Test

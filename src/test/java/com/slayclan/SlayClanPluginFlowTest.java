@@ -1713,6 +1713,232 @@ public class SlayClanPluginFlowTest
 		assertEquals("199", payload.getValue().getFields().get("Points"));
 	}
 
+	@Test
+	public void raidPurpleWithClanMatesIsPostedNamingTheClanParty()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"));
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Clan Purple"), postedTasks());
+		assertEquals("Clanmate, Raidbuddy", postedField("Party"));
+	}
+
+	@Test
+	public void raidPurpleWithClanMatesIsNotPostedWhenAnOutsiderWasInTheRaid()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Scythe of vitur*"));
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Theatre of Blood", "Scythe of vitur (uncharged)", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void raidPurpleWithClanMatesIsNotPostedWhenPartOfTheRaidPartyCannotBeRead()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Tome of fire"));
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
+
+		loot("Fractured Archive", "Tome of fire", 1_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void clanOnlyLootTaskIsNotPostedFromAnOpenWorldBossSinceBystandersCannotBeToldFromTheTeam()
+	{
+		tasks(withItems(task("clan-loot", "LOOT", null, 0, true), "Dragon pickaxe"));
+		when(worldView.isInstance()).thenReturn(false);
+
+		loot("Callisto", "Dragon pickaxe", 5_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void clanOnlyLootTaskAtAnInstancedBossAloneIsPosted()
+	{
+		tasks(withItems(task("clan-loot", "LOOT", null, 0, true), "Tanzanite fang"));
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		assertEquals(List.of("Clan Loot"), postedTasks());
+	}
+
+	@Test
+	public void lootTaskOpenToAnyTeamIsPostedWithoutAPartyAlsoWithAnOutsiderInTheRaid()
+	{
+		tasks(withItems(task("any-purple", "LOOT", null, 0, false), "Twisted bow"));
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Any Purple"), postedTasks());
+		assertNull(postedField("Party"));
+	}
+
+	@Test
+	public void dropFromARaidOfClanMembersOnlyIsMarkedAsAClanTeamWithEveryoneInTheParty()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Tombs of Amascut", "Tumeken's shadow (uncharged)", 1_000_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals("Clanmate, Raidbuddy", drop.get("Party"));
+		assertEquals("yes", drop.get("Clan team"));
+	}
+
+	@Test
+	public void dropFromARaidWithAnOutsiderIsNotAClanTeamAndNamesOnlyTheClanMembers()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Theatre of Blood", "Scythe of vitur (uncharged)", 1_000_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals("Clanmate, Raidbuddy", drop.get("Party"));
+		assertEquals("no", drop.get("Clan team"));
+	}
+
+	@Test
+	public void dropFromAnOpenWorldBossLeavesOutTheTeamSinceBystandersCannotBeToldFromIt()
+	{
+		tasks(dropsFrom500k());
+		when(worldView.isInstance()).thenReturn(false);
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Callisto", "Dragon pickaxe", 5_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void coxChestOpenedLongAfterTheRaidWithFewerNamesThanItsTeamSizeNeitherPostsTheClanPurpleNorJudgesTheTeam()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"), dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		chat("Team size: <col=ff0000>3 players</col> Duration:</col> <col=ff0000>30:00.00</col> Personal best: 14:00");
+		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
+		ticks(20);
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+		assertNull(postedDrop().get("Clan team"));
+	}
+
+	@Test
+	public void toaChestWithFewerNamesThanFilledPartySlotsNeitherPostsTheClanPurpleNorJudgesTheTeam()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Tumeken's shadow*"), dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Tombs of Amascut")).thenReturn(3);
+
+		loot("Tombs of Amascut", "Tumeken's shadow (uncharged)", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+		assertNull(postedDrop().get("Clan team"));
+	}
+
+	@Test
+	public void dropWhereNoPlayerCanBeFoundLeavesOutTheTeam()
+	{
+		tasks(dropsFrom500k());
+		when(participantReader.read(anyString())).thenReturn(List.of());
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void soloDropAtAnInstancedBossNamesTheMemberAndCountsAsAClanTeam()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals(ME, drop.get("Party"));
+		assertEquals("yes", drop.get("Clan team"));
+	}
+
+	@Test
+	public void fracturedArchiveDropWithPartOfThePartyUnreadLeavesOutTheTeam()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
+
+		loot("Fractured Archive", "Tome of fire", 1_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void raidChestIsJudgedByTheRaidPartyEvenWhenTheGameDoesNotReportAnInstance()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"), dropsFrom500k());
+		when(worldView.isInstance()).thenReturn(false);
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Clan Purple"), postedTasks());
+		assertEquals("yes", postedDrop().get("Clan team"));
+		verify(participantReader, atLeast(1)).read("RAID:Chambers of Xeric");
+	}
+
+	private void raidPartyOf(String... names)
+	{
+		for (String name : names)
+		{
+			if (!name.equals(OUTSIDER))
+			{
+				when(clan.findMember(name)).thenReturn(mock(ClanMember.class));
+			}
+		}
+		when(participantReader.read(anyString())).thenReturn(List.of(names));
+	}
+
+	private void loot(String source, String itemName, long price)
+	{
+		ItemComposition item = mock(ItemComposition.class);
+		when(item.getName()).thenReturn(itemName);
+		when(itemManager.getItemComposition(HORN_OF_BRAN)).thenReturn(item);
+		when(itemManager.canonicalize(HORN_OF_BRAN)).thenReturn(HORN_OF_BRAN);
+		when(itemManager.getItemPriceWithSource(HORN_OF_BRAN, false)).thenReturn(price);
+		plugin.onLootReceived(new LootReceived(source, 0, LootRecordType.EVENT, List.of(new ItemStack(HORN_OF_BRAN, 1)), 1, null));
+	}
+
+	private static TaskDefinition dropsFrom500k()
+	{
+		TaskDefinition drops = task("drops", "DROP", null, 0, false);
+		drops.setMinValue(500_000);
+		drops.setValuePerPoint(1_000_000);
+		return drops;
+	}
+
+	private Map<String, String> postedDrop()
+	{
+		List<PostPayload> drops = posted("drop");
+		assertEquals(1, drops.size());
+		return drops.get(0).getFields();
+	}
+
 	private static TaskDefinition task(String id, String trigger, String maxTime, int teamSize, boolean clanOnly)
 	{
 		TaskDefinition task = new TaskDefinition();

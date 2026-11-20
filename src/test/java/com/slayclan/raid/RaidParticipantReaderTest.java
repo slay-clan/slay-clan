@@ -58,9 +58,19 @@ public class RaidParticipantReaderTest
 	}
 
 	@Test
-	public void otherRaidsStateNoTeamSizeThroughTheReader()
+	public void tombsOfAmascutTeamSizeAtTheRewardChestIsTheFilledPartySlotsInEveryMode()
 	{
-		assertEquals(0, reader.gamesTeamSize("RAID:Tombs of Amascut"));
+		when(client.getVarbitValue(VarbitID.TOA_CLIENT_P0)).thenReturn(30);
+		when(client.getVarbitValue(VarbitID.TOA_CLIENT_P2)).thenReturn(12);
+
+		assertEquals(2, reader.gamesTeamSize("RAID:Tombs of Amascut"));
+		assertEquals(2, reader.gamesTeamSize("RAID:Tombs of Amascut: Expert Mode"));
+	}
+
+	@Test
+	public void theatreOfBloodStatesNoTeamSizeOfItsOwn()
+	{
+		assertEquals(0, reader.gamesTeamSize("RAID:Theatre of Blood"));
 	}
 
 	@Test

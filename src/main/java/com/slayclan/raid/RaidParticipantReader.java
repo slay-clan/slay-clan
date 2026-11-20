@@ -68,12 +68,16 @@ public class RaidParticipantReader
 	}
 
 	/**
-	 * How many players the game says are in the party, or 0 when it does not say. The Fractured Archive keeps
-	 * one varbit per party slot, which is set while a player fills it, so the count stays right even when the
-	 * name list could not be read.
+	 * How many players the game says are in the party, or 0 when it does not say. The Tombs of Amascut and the
+	 * Fractured Archive keep one varbit per party slot, which is set while a player fills it, so the count stays
+	 * right even when the name list could not be read. The Theatre of Blood keeps no such count.
 	 */
 	public int gamesTeamSize(String trigger)
 	{
+		if (trigger.startsWith(TOMBS_OF_AMASCUT))
+		{
+			return toaTeamSize();
+		}
 		if (!trigger.startsWith(FRACTURED_ARCHIVE))
 		{
 			return 0;

@@ -1,5 +1,6 @@
 package com.slayclan.discord;
 
+import com.slayclan.clan.ClanTeam;
 import com.slayclan.config.TaskDefinition;
 import com.slayclan.drop.ValuableDrop;
 import java.time.Instant;
@@ -101,6 +102,62 @@ public class MessageFormatterTest
 
 		assertEquals("Vorki", post.getFields().get("Item"));
 		assertFalse(post.getFields().containsKey("Source"));
+	}
+
+	@Test
+	public void lootTaskDoneWithClanMatesNamesThemInTheParty()
+	{
+		TaskDefinition task = task("Clan Purple", "Repeatable", 20);
+
+		PostPayload post = formatter.buildItemTask("Clanmate", task, "Twisted bow", "Chambers of Xeric", List.of("Clanmate", "Raidbuddy"), COMPLETED_AT);
+
+		assertEquals("Twisted bow", post.getFields().get("Item"));
+		assertEquals("Chambers of Xeric", post.getFields().get("Source"));
+		assertEquals("Clanmate, Raidbuddy", post.getFields().get("Party"));
+	}
+
+	@Test
+	public void lootTaskDoneAloneHasNoPartyField()
+	{
+		TaskDefinition task = task("Clan Purple", "Repeatable", 20);
+
+		PostPayload post = formatter.buildItemTask("Clanmate", task, "Tanzanite fang", "Zulrah", List.of("Clanmate"), COMPLETED_AT);
+
+		assertFalse(post.getFields().containsKey("Party"));
+	}
+
+	@Test
+	public void dropFromAWholeClanTeamNamesTheTeamAndSaysItWasAClanTeam()
+	{
+		PostPayload post = formatter.buildDrop("Clanmate", twistedBow(), "Chambers of Xeric",
+			new ClanTeam(List.of("Clanmate", "Raidbuddy"), true), COMPLETED_AT);
+
+		assertEquals("Clanmate, Raidbuddy", post.getFields().get("Party"));
+		assertEquals("yes", post.getFields().get("Clan team"));
+		assertEquals("Twisted bow", post.getFields().get("Item"));
+	}
+
+	@Test
+	public void dropFromAMemberAloneStillNamesTheMember()
+	{
+		PostPayload post = formatter.buildDrop("Clanmate", twistedBow(), "Zulrah", new ClanTeam(List.of("Clanmate"), true), COMPLETED_AT);
+
+		assertEquals("Clanmate", post.getFields().get("Party"));
+		assertEquals("yes", post.getFields().get("Clan team"));
+	}
+
+	@Test
+	public void dropFromATeamWithoutKnownClanMembersSaysItWasNoClanTeamAndNamesNobody()
+	{
+		PostPayload post = formatter.buildDrop("Clanmate", twistedBow(), "Theatre of Blood", new ClanTeam(List.of(), false), COMPLETED_AT);
+
+		assertFalse(post.getFields().containsKey("Party"));
+		assertEquals("no", post.getFields().get("Clan team"));
+	}
+
+	private static ValuableDrop twistedBow()
+	{
+		return new ValuableDrop("Twisted bow", 1, 1_000_000_000L, 1000);
 	}
 
 	@Test
