@@ -33,7 +33,7 @@ public class ActivityReporter
 	private final KeptScreenshots keptScreenshots;
 	private final DeliveredSnapshots deliveredSnapshots;
 	private final BotAnswers answers;
-	// Screenshot files are only read and written here: the bot's answers arrive on threads that must not wait for the disk
+	// Screenshot files are only read and written here, since a retry round starts on the client thread
 	private final Executor executor;
 	// A second check can run before the bot has answered the first send, so the fingerprint last sent per kind and
 	// account counts as delivered meanwhile, and only that one is remembered when the bot answers, however the
@@ -187,11 +187,12 @@ public class ActivityReporter
 		if (!reply.isDelivered())
 		{
 			log.info("Keeping an undelivered {} post for retry", payload.getKind());
-			pendingPostStore.add(payload, Instant.now(), png != null).forEach(this::discardScreenshotOf);
+			// Queued before the post is stored, so a retry round that loads the post reads the file after it is written
 			if (png != null)
 			{
 				executor.execute(() -> keepScreenshot(payload.getNonce(), png));
 			}
+			pendingPostStore.add(payload, Instant.now(), png != null).forEach(this::discardScreenshotOf);
 			return;
 		}
 		settleTask(payload.getTaskId(), reply);

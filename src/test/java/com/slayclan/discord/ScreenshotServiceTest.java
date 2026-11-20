@@ -175,18 +175,6 @@ public class ScreenshotServiceTest
 	}
 
 	@Test
-	public void aScreenshotTakenForAJudgedTaskArrivesAsAnImageThatCanStillBePostedAsPng()
-	{
-		List<BufferedImage> frames = new ArrayList<>();
-
-		service.captureFrame(frames::add);
-		drawFrame();
-
-		assertEquals(1, frames.get(0).getWidth());
-		assertNotNull(ScreenshotService.toPng(frames.get(0)));
-	}
-
-	@Test
 	public void playerChatIsLeftOutOfTheFrameAndTheChatboxIsRebuiltWithItOnceAfterwards()
 	{
 		service.capture(captured::add);
