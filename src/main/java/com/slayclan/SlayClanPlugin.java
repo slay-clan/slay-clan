@@ -14,6 +14,7 @@ import com.slayclan.activity.PersonalBestClaim;
 import com.slayclan.activity.PersonalBestReader;
 import com.slayclan.activity.ScaleBestStore;
 import com.slayclan.activity.StoredPersonalBest;
+import com.slayclan.activity.ToaTotalBestStore;
 import com.slayclan.clan.ClanMembershipChecker;
 import com.slayclan.clan.MainGameWorld;
 import com.slayclan.config.RemoteConfig;
@@ -232,7 +233,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private boolean loginPending;
 	private final PersonalBestDetector personalBestDetector = new PersonalBestDetector();
 	private final List<TickedPersonalBest> recentPersonalBests = new ArrayList<>();
-	private final Set<String> bossesReportedThisLogin = new HashSet<>();
 	private CombatAchievementReader combatAchievementReader;
 	private CollectionLogReader collectionLogReader;
 	private CollectionLogCapture collectionLogCapture;
@@ -240,6 +240,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private ActivityReporter activityReporter;
 	private DeliveredSnapshots deliveredSnapshots;
 	private ScaleBestStore scaleBestStore;
+	private ToaTotalBestStore toaTotalBestStore;
 	private ItemNameIndex itemNameIndex;
 	private TaskProofs taskProofs;
 	private boolean statusCheckPending;
@@ -272,6 +273,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		activityFormatter = new ActivityFormatter(gson);
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
+		toaTotalBestStore = new ToaTotalBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
 		taskProofs = new TaskProofs(client, itemManager);
 		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, keptScreenshots, deliveredSnapshots, this, executor);
@@ -307,7 +309,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		pendingCompletions.clear();
 		recentTimes.clear();
 		recentPersonalBests.clear();
-		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
 		caJudgementPending = false;
@@ -421,7 +422,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		statusCheckPending = true;
 		caSnapshotPending = true;
 		pbSnapshotPending = true;
-		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
 		caJudgementPending = false;
@@ -629,6 +629,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				.filter(best -> Math.abs(best.getTick() - pending.getTick()) <= COMPLETION_DELAY_TICKS)
 				.map(TickedPersonalBest::getBest)
 				.collect(Collectors.toList());
+			rememberToaTotalBest(pending.getTrigger(), bests);
 			reportPersonalBests(pending.getTrigger(), bests);
 		}
 		recentTimes.removeIf(time -> tick - time.getTick() > RECENT_TIME_MAX_AGE_TICKS);
@@ -789,7 +790,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 		pbSnapshotPending = false;
-		activityReporter.reportPbSnapshot(target, account(), client.getAccountHash(), personalBestReader.read());
+		long accountHash = client.getAccountHash();
+		activityReporter.reportPbSnapshot(target, account(), accountHash,
+			toaTotalBestStore.withTotalsInsteadOfChallengeTimes(accountHash, personalBestReader.read()));
 		pbJudgementPending = true;
 	}
 
@@ -911,11 +914,25 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			.orElse(-1);
 	}
 
+	// The game's total record is the account's own, so it is remembered whoever was in the team and whether or not
+	// anything may be posted. A seasonal world keeps records apart from the main game, so only main game raids count,
+	// and a raid the clan config switched off never gets here. An unknown team size leaves the record unfiled.
+	private void rememberToaTotalBest(String trigger, List<PersonalBest> bests)
+	{
+		if (!isMainGameToaRaid(trigger))
+		{
+			return;
+		}
+		long accountHash = client.getAccountHash();
+		int teamSize = participantReader.toaTeamSize();
+		bests.stream()
+			.filter(best -> best.getKind() == TimedLine.Kind.TOTAL)
+			.forEach(best -> toaTotalBestStore.rememberIfFaster(accountHash, bossName(trigger), teamSize, best.getBestSeconds()));
+	}
+
 	/**
-	 * Raids: the game keeps a PB per scale, so a new record is reported as such and the current best once per raid
-	 * and login, so the board can pick up times set before the plugin was installed. Bosses: the game keeps one PB
-	 * across scales, so the plugin reports every kill faster than its own memory for that scale, and the game's PB
-	 * once per account with the scale left open.
+	 * Raids: the game keeps a PB per scale, so only a new record is reported. Bosses: the game keeps one PB across
+	 * scales, so the plugin also reports every kill faster than its own memory for that scale.
 	 */
 	private void reportPersonalBests(String trigger, List<PersonalBest> bests)
 	{
@@ -955,16 +972,11 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	private void reportRaidBests(BotTarget target, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
 	{
-		boolean firstReportThisLogin = bossesReportedThisLogin.add(boss);
 		for (PersonalBest best : bests)
 		{
 			if (best.isNewRecord())
 			{
 				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.NEW_RECORD);
-			}
-			else if (firstReportThisLogin)
-			{
-				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.CURRENT);
 			}
 		}
 	}
@@ -982,13 +994,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				postBest(target, boss, TimeFormat.of(run), best.getKind(), teamSize, party,
 					best.isNewRecord() ? PersonalBestClaim.NEW_RECORD : PersonalBestClaim.FASTEST_AT_SCALE);
 			}
-			if (gameBestStillUnreported(accountHash, boss, best))
-			{
-				scaleBestStore.markGameBestReported(accountHash, boss);
-				Account account = playingAccount();
-				activityReporter.send(target, account.stamp(
-					activityFormatter.currentBossBest(account.getName(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now())), null);
-			}
 		}
 	}
 
@@ -997,22 +1002,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return best.isNewRecord() || seasonBests.isFasterThanStored(accountHash, boss, best.getKind(), teamSize, best.getRunSeconds());
 	}
 
-	private boolean gameBestStillUnreported(long accountHash, String boss, PersonalBest best)
-	{
-		return !best.isNewRecord() && !scaleBestStore.isGameBestReported(accountHash, boss);
-	}
-
 	private void postBest(BotTarget target, String boss, String time, TimedLine.Kind kind, int teamSize, List<String> party,
 		PersonalBestClaim claim)
 	{
 		Account account = playingAccount();
 		PostPayload payload = account.stamp(
 			activityFormatter.personalBest(account.getName(), boss, time, kind, teamSize, party, claim, Instant.now()));
-		if (claim == PersonalBestClaim.CURRENT)
-		{
-			activityReporter.send(target, payload, null);
-			return;
-		}
 		screenshotService.capture(png -> activityReporter.send(target, payload, png));
 	}
 
@@ -1103,6 +1098,11 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static boolean isChambersOfXeric(String trigger)
 	{
 		return trigger.startsWith(Triggers.raid("Chambers of Xeric"));
+	}
+
+	private boolean isMainGameToaRaid(String trigger)
+	{
+		return trigger.startsWith(Triggers.raid("Tombs of Amascut")) && onMainGameWorld();
 	}
 
 	private void handleCompletion(String trigger, List<TimedLine> times, int killCount)

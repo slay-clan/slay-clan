@@ -152,9 +152,15 @@ public class ActivityReporterTest
 		assertTrue(answered.get("cave-runner").isRecorded());
 	}
 
+	private static PostPayload fastestYamaKill()
+	{
+		return new ActivityFormatter(new Gson()).personalBest("Clanmate", "Yama", "5:57", com.slayclan.trigger.TimedLine.Kind.SINGLE, 1,
+			List.of("Clanmate"), PersonalBestClaim.FASTEST_AT_SCALE, java.time.Instant.EPOCH);
+	}
+
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
+		return new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, null);
 	}
 
 	@Test
@@ -185,8 +191,7 @@ public class ActivityReporterTest
 	public void keepsAPersonalBestTheBotCouldNotTake()
 	{
 		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
-		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
-			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
+		PostPayload payload = fastestYamaKill();
 
 		reporter.send(TARGET, payload, null);
 
@@ -198,8 +203,7 @@ public class ActivityReporterTest
 	{
 		when(botClient.send(any(), any(), any()))
 			.thenReturn(CompletableFuture.completedFuture(BotReply.refused("Not recorded: slower than your time on the board.", "slower than your time on the board.")));
-		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
-			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
+		PostPayload payload = fastestYamaKill();
 
 		reporter.send(TARGET, payload, null);
 
@@ -395,7 +399,7 @@ public class ActivityReporterTest
 	public void theScreenshotOfAPostPushedOutOfAFullQueueIsDeleted()
 	{
 		PendingPost pushedOut = keepWithScreenshot(payload("Cave Runner"));
-		PostPayload next = new PostPayload("task", "fedcba9876543210", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", "Next"), null, false, null);
+		PostPayload next = new PostPayload("task", "fedcba9876543210", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", "Next"), null, null);
 		when(pendingPostStore.add(eq(next), any(), anyBoolean())).thenReturn(List.of(pushedOut));
 
 		reporter.send(TARGET, next, SCREENSHOT);

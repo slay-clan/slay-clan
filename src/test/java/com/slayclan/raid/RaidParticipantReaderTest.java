@@ -42,6 +42,22 @@ public class RaidParticipantReaderTest
 	}
 
 	@Test
+	public void tombsOfAmascutTeamSizeCountsTheFilledPartySlots()
+	{
+		when(client.getVarbitValue(VarbitID.TOA_CLIENT_P0)).thenReturn(30);
+		when(client.getVarbitValue(VarbitID.TOA_CLIENT_P1)).thenReturn(27);
+		when(client.getVarbitValue(VarbitID.TOA_CLIENT_P4)).thenReturn(1);
+
+		assertEquals(3, reader.toaTeamSize());
+	}
+
+	@Test
+	public void tombsOfAmascutTeamSizeIsUnknownWithoutAFilledPartySlot()
+	{
+		assertEquals(0, reader.toaTeamSize());
+	}
+
+	@Test
 	public void otherRaidsStateNoTeamSizeThroughTheReader()
 	{
 		assertEquals(0, reader.gamesTeamSize("RAID:Tombs of Amascut"));

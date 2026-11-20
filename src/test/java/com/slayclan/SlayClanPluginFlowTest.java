@@ -21,6 +21,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -665,7 +666,7 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void reportsTheFirstKillAtAScaleAndTheGamesBestOnceForABoss()
+	public void postsTheFirstKillAtAScaleButNeverTheGamesStoredBestForTheBoss()
 	{
 		tasks();
 		login();
@@ -675,14 +676,12 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(2, bests.size());
+		assertEquals(1, bests.size());
 		Map<String, String> fastest = bests.get(0).getFields();
 		assertEquals("no", fastest.get("New"));
 		assertEquals("1:10", fastest.get("Time"));
 		assertEquals("1", fastest.get("Team size"));
-		Map<String, String> current = bests.get(1).getFields();
-		assertEquals("0:55", current.get("Time"));
-		assertTrue(current.containsKey("Scale"));
+		assertEquals("no", fastest.get("Stored best"));
 
 		chat("Fight duration: <col=ff0000>1:12</col>. Personal best: 0:55");
 		chat("Your Zulrah kill count is: <col=ff0000>11</col>.");
@@ -692,7 +691,23 @@ public class SlayClanPluginFlowTest
 		chat("Your Zulrah kill count is: <col=ff0000>12</col>.");
 		ticks(3);
 
-		assertEquals(2, postedCount("pb"));
+		assertEquals(1, postedCount("pb"));
+	}
+
+	@Test
+	public void postsNothingForARaidWithoutANewRecordEvenAsTheFirstRaidAfterLogin()
+	{
+		tasks();
+		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
+		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy"));
+		login();
+
+		chat("Tombs of Amascut: Expert Mode challenge completion time: <col=ff0000>28:38</col>. Personal best: 26:43");
+		chat("Tombs of Amascut total completion time: <col=ff0000>31:30.00</col>. Personal best: 29:57.60");
+		chat("Your completed Tombs of Amascut: Expert Mode count is: <col=ff0000>10</col>.");
+		ticks(3);
+
+		assertEquals(0, postedCount("pb"));
 	}
 
 	@Test
@@ -708,8 +723,8 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(3, bests.size());
-		Map<String, String> faster = bests.get(2).getFields();
+		assertEquals(2, bests.size());
+		Map<String, String> faster = bests.get(1).getFields();
 		assertEquals("no", faster.get("New"));
 		assertEquals("5:40", faster.get("Time"));
 	}
@@ -724,7 +739,7 @@ public class SlayClanPluginFlowTest
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>11</col>.");
 		ticks(3);
-		assertEquals(2, postedCount("pb"));
+		assertEquals(1, postedCount("pb"));
 
 		remoteConfig.setPbSeasonStart("2026-11-16");
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
@@ -732,8 +747,8 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(3, bests.size());
-		assertEquals("5:57", bests.get(2).getFields().get("Time"));
+		assertEquals(2, bests.size());
+		assertEquals("5:57", bests.get(1).getFields().get("Time"));
 	}
 
 	@Test
@@ -747,14 +762,14 @@ public class SlayClanPluginFlowTest
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>11</col>.");
 		ticks(3);
-		assertEquals(3, postedCount("pb"));
+		assertEquals(2, postedCount("pb"));
 
 		remoteConfig.setPbSeasonStart("");
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>12</col>.");
 		ticks(3);
 
-		assertEquals(3, postedCount("pb"));
+		assertEquals(2, postedCount("pb"));
 	}
 
 	@Test
@@ -771,6 +786,94 @@ public class SlayClanPluginFlowTest
 		List<PostPayload> snapshots = posted("pb-snapshot");
 		assertEquals(1, snapshots.size());
 		assertTrue(gson.toJson(snapshots.get(0).getEntries()).contains("\"boss\":\"zulrah\""));
+	}
+
+	@Test
+	public void storedBestsSentAfterLoginCarryTheToaTotalRecordInsteadOfRuneLitesChallengeTime()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0, "tombs of amascut expert mode 3 players", 1603.0));
+		when(participantReader.toaTeamSize()).thenReturn(3);
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		login();
+		ticks(6);
+
+		String entries = latestStoredBests();
+		assertTrue(entries.contains("\"boss\":\"zulrah\""));
+		assertFalse(entries.contains("\"boss\":\"tombs of amascut expert mode 3 players\""));
+		assertTrue(entries.contains("{\"boss\":\"tombs of amascut expert mode 3 players total\",\"seconds\":1797.6,\"time\":\"29:57.60\"}"));
+	}
+
+	@Test
+	public void aToaTotalRecordOnASeasonalWorldIsNotSentWithTheMainGameStoredBests()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(3);
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS, WorldType.SEASONAL));
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
+		login();
+		ticks(6);
+
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aToaTotalRecordIsNotSentWhenTheGameShowsNoPartyToTellTheTeamSize()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(0);
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		login();
+		ticks(6);
+
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aOneTimeToaTaskIsStillJudgedFromRuneLitesStoredBestThatTheStoredBestsSentLeaveOut()
+	{
+		TaskDefinition task = task("desert-dash", "RAID:Tombs of Amascut: Expert Mode", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		storedPersonalBest("tombs of amascut expert mode solo", 1400.0);
+
+		login();
+		ticks(6);
+
+		assertEquals(List.of("Desert Dash"), postedTasks());
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aNewToaTotalRecordSendsTheStoredBestsAgainAtTheNextLogin()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(1);
+		login();
+		ticks(6);
+		login();
+		ticks(6);
+		assertEquals(1, postedCount("pb-snapshot"));
+
+		chat("Tombs of Amascut total completion time: <col=ff0000>25:00</col> (new personal best)");
+		chat("Your completed Tombs of Amascut count is: <col=ff0000>10</col>.");
+		ticks(3);
+		login();
+		ticks(6);
+
+		List<PostPayload> snapshots = posted("pb-snapshot");
+		assertEquals(2, snapshots.size());
+		assertTrue(gson.toJson(snapshots.get(1).getEntries()).contains("\"boss\":\"tombs of amascut solo total\""));
 	}
 
 	@Test
@@ -1410,9 +1513,29 @@ public class SlayClanPluginFlowTest
 
 	private void storedPersonalBest(String boss, double seconds)
 	{
+		storedPersonalBests(Map.of(boss, seconds));
+	}
+
+	private void finishExpertToaWithATotalRecordOf2957()
+	{
+		chat("Tombs of Amascut: Expert Mode challenge completion time: <col=ff0000>28:38</col>. Personal best: 26:43");
+		chat("Tombs of Amascut total completion time: <col=ff0000>31:30.00</col>. Personal best: 29:57.60");
+		chat("Your completed Tombs of Amascut: Expert Mode count is: <col=ff0000>10</col>.");
+		ticks(3);
+	}
+
+	private String latestStoredBests()
+	{
+		List<PostPayload> snapshots = posted("pb-snapshot");
+		return gson.toJson(snapshots.get(snapshots.size() - 1).getEntries());
+	}
+
+	private void storedPersonalBests(Map<String, Double> secondsByBoss)
+	{
 		when(configManager.getRSProfileKey()).thenReturn("rsprofile.abc");
-		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(List.of(boss));
-		when(configManager.getRSProfileConfiguration("personalbest", boss, double.class)).thenReturn(seconds);
+		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(new ArrayList<>(secondsByBoss.keySet()));
+		secondsByBoss.forEach((boss, seconds) ->
+			when(configManager.getRSProfileConfiguration("personalbest", boss, double.class)).thenReturn(seconds));
 	}
 
 	private static VarbitChanged varbitChanged(int varbitId, int varpId)
@@ -1560,7 +1683,7 @@ public class SlayClanPluginFlowTest
 
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
+		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, null);
 	}
 
 	private static String judgementKey(String source, long accountHash)
