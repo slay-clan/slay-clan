@@ -185,6 +185,9 @@ public class SlayClanPluginFlowTest
 		when(localPlayer.getName()).thenReturn(ME);
 		when(client.getTickCount()).thenAnswer(invocation -> tick);
 		when(client.getAccountHash()).thenReturn(1L);
+		when(client.isResized()).thenReturn(true);
+		when(client.getCanvasWidth()).thenReturn(765);
+		when(client.getCanvasHeight()).thenReturn(FRAME_HEIGHT);
 		when(client.getTopLevelWorldView()).thenReturn(worldView);
 		Map<String, String> memory = new HashMap<>();
 		when(configManager.getConfiguration(anyString(), anyString()))
@@ -1333,7 +1336,7 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithItsProofUnderTheScreenshot()
+	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithItsProofOnTheScreenshot()
 	{
 		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
 		task.setOnce(true);
@@ -1343,11 +1346,32 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
 	}
 
 	@Test
-	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithItsProofUnderTheScreenshot()
+	public void inTheFixedSizeClientTheProofIsDrawnInsideThe3dViewLeftOfTheMinimap()
+	{
+		when(client.isResized()).thenReturn(false);
+		when(client.getViewportXOffset()).thenReturn(4);
+		when(client.getViewportYOffset()).thenReturn(4);
+		when(client.getViewportWidth()).thenReturn(512);
+		when(client.getViewportHeight()).thenReturn(334);
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(6);
+
+		BufferedImage screenshot = screenshotOfTheTaskPost();
+		assertTrue(carriesAProofBox(screenshot, 260));
+		assertTrue("nothing is drawn over the side panel", untouchedFromColumn(screenshot, 516));
+	}
+
+	@Test
+	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithItsProofOnTheScreenshot()
 	{
 		TaskDefinition task = task("serpent-sprint", "KILL:Zulrah", "1:00", 0, false);
 		task.setOnce(true);
@@ -1357,11 +1381,11 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
 	}
 
 	@Test
-	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithItsItemsUnderTheScreenshot()
+	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithItsItemsOnTheScreenshot()
 	{
 		TaskDefinition petHoarder = withItems(task("pet-hoarder", "CLOG", null, 0, false), "Vorki", "Olmlet", "Pet snakeling");
 		petHoarder.setRequired(2);
@@ -1372,14 +1396,14 @@ public class SlayClanPluginFlowTest
 		openCollectionLogWith("Olmlet", "Bandos chestplate", "Pet snakeling");
 		ticks(3);
 
-		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
 		verify(itemManager).getImage(2000);
 		verify(itemManager).getImage(2002);
 		verify(itemManager, never()).getImage(2001);
 	}
 
 	@Test
-	public void anEquipmentTaskIsPostedWithTheWornItemUnderTheScreenshot()
+	public void anEquipmentTaskIsPostedWithTheWornItemOnTheScreenshot()
 	{
 		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
 		wearing("Quest point cape");
@@ -1387,7 +1411,7 @@ public class SlayClanPluginFlowTest
 
 		ticks(6);
 
-		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
 	}
 
 	@Test
@@ -1655,6 +1679,39 @@ public class SlayClanPluginFlowTest
 	private List<PostPayload> posted(String kind)
 	{
 		return posted().stream().filter(payload -> payload.getKind().equals(kind)).collect(Collectors.toList());
+	}
+
+	private static boolean carriesAProofBox(BufferedImage screenshot)
+	{
+		return carriesAProofBox(screenshot, screenshot.getWidth() / 2);
+	}
+
+	// The captured frame is plain black, so anything drawn near the top is the proof box
+	private static boolean carriesAProofBox(BufferedImage screenshot, int x)
+	{
+		for (int y = 0; y < screenshot.getHeight() / 4; y++)
+		{
+			if ((screenshot.getRGB(x, y) & 0xFFFFFF) != 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean untouchedFromColumn(BufferedImage screenshot, int fromX)
+	{
+		for (int x = fromX; x < screenshot.getWidth(); x++)
+		{
+			for (int y = 0; y < screenshot.getHeight(); y++)
+			{
+				if ((screenshot.getRGB(x, y) & 0xFFFFFF) != 0)
+				{
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 
 	private BufferedImage screenshotOfTheTaskPost()
