@@ -13,7 +13,7 @@ public class GameViewWatchTest
 	@Test
 	public void whileTheWelcomeScreenIsOpenThePlayerIsNotYetInView()
 	{
-		watch.onLogin(0);
+		watch.onLogin();
 		for (int tick = 0; tick < 20; tick++)
 		{
 			watch.onTick(tick);
@@ -25,7 +25,7 @@ public class GameViewWatchTest
 	@Test
 	public void thePlayerIsInViewAMomentAfterTheWelcomeScreenCloses()
 	{
-		watch.onLogin(0);
+		watch.onLogin();
 		watch.onTick(0);
 		welcomeScreenOpen.set(false);
 		watch.onTick(10);
@@ -37,24 +37,27 @@ public class GameViewWatchTest
 	}
 
 	@Test
-	public void aWelcomeScreenLeftOpenNoLongerHoldsThePostAfterAMinute()
+	public void aMemberWhoStaysAwayFromKeyboardOnTheWelcomeScreenKeepsThePostWaiting()
 	{
-		watch.onLogin(0);
-		watch.onTick(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS);
+		watch.onLogin();
+		for (int tick = 0; tick <= 6000; tick++)
+		{
+			watch.onTick(tick);
+		}
 
-		assertTrue(watch.shown(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS));
+		assertFalse(watch.shown(6000));
 	}
 
 	@Test
 	public void aNewLoginWaitsForItsOwnWelcomeScreenToClose()
 	{
-		watch.onLogin(0);
+		watch.onLogin();
 		welcomeScreenOpen.set(false);
 		watch.onTick(0);
 		watch.onTick(5);
 		assertTrue(watch.shown(5));
 
-		watch.onLogin(50);
+		watch.onLogin();
 		welcomeScreenOpen.set(true);
 		watch.onTick(51);
 
@@ -64,7 +67,7 @@ public class GameViewWatchTest
 	@Test
 	public void aWelcomeScreenThatOpensAFewTicksAfterLoginStillHoldsThePost()
 	{
-		watch.onLogin(0);
+		watch.onLogin();
 		welcomeScreenOpen.set(false);
 		watch.onTick(0);
 		watch.onTick(1);
@@ -73,19 +76,5 @@ public class GameViewWatchTest
 		watch.onTick(5);
 
 		assertFalse(watch.shown(5));
-	}
-
-	@Test
-	public void aWelcomeScreenClosedJustBeforeTheMinuteStillGetsAMomentToDrawTheGame()
-	{
-		watch.onLogin(0);
-		watch.onTick(0);
-		welcomeScreenOpen.set(false);
-		watch.onTick(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS - 1);
-		watch.onTick(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS);
-
-		assertFalse(watch.shown(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS));
-		watch.onTick(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS + 1);
-		assertTrue(watch.shown(GameViewWatch.WELCOME_SCREEN_TIMEOUT_TICKS + 1));
 	}
 }
