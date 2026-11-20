@@ -60,8 +60,11 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.PluginManager;
+import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.http.api.item.ItemPrice;
+import net.runelite.http.api.loottracker.LootRecordType;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -104,6 +107,7 @@ public class SlayClanPluginFlowTest
 	private static final BotTarget TARGET = new BotTarget(API, TOKEN);
 	private static final String ME = "Clanmate";
 	private static final String OUTSIDER = "Stranger";
+	private static final int HORN_OF_BRAN = 32000;
 	private static final byte[] PLAIN_SCREENSHOT = {1};
 	private static final int FRAME_HEIGHT = 503;
 
@@ -1562,6 +1566,28 @@ public class SlayClanPluginFlowTest
 	private static String judgementKey(String source, long accountHash)
 	{
 		return source + "." + accountHash;
+	}
+
+	@Test
+	public void dropPostShowsTheGrandExchangeGuidePriceLikeTheGameBroadcastNotTheWikiPrice()
+	{
+		TaskDefinition drops = task("drops", "DROP", null, 0, false);
+		drops.setMinValue(500_000);
+		drops.setValuePerPoint(1_000_000);
+		tasks(drops);
+		ItemComposition horn = mock(ItemComposition.class);
+		when(horn.getName()).thenReturn("Horn of Bran");
+		when(itemManager.getItemComposition(HORN_OF_BRAN)).thenReturn(horn);
+		when(itemManager.canonicalize(HORN_OF_BRAN)).thenReturn(HORN_OF_BRAN);
+		when(itemManager.getItemPrice(HORN_OF_BRAN)).thenReturn(193_000_000L);
+		when(itemManager.getItemPriceWithSource(HORN_OF_BRAN, false)).thenReturn(199_000_000L);
+
+		plugin.onLootReceived(new LootReceived("Bran", 0, LootRecordType.NPC, List.of(new ItemStack(HORN_OF_BRAN, 1)), 1, null));
+
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("199", payload.getValue().getFields().get("Value in M"));
+		assertEquals("199", payload.getValue().getFields().get("Points"));
 	}
 
 	private static TaskDefinition task(String id, String trigger, String maxTime, int teamSize, boolean clanOnly)

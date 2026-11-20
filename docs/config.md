@@ -66,7 +66,7 @@ Names in triggers and item lists ignore case and apostrophes. A trigger or item 
 | `items` | Item names for `CLOG`, `LOOT`, `EQUIP` and `HOLD` |
 | `required` | How many different items from `items` are needed. Defaults to 1, meaning any one of them. Every one-time task (`once: true`) is also judged on the whole collection log each time the player opens it, so items owned before the plugin was installed count, which is how `Pet Hoarder` and an already owned cape or pet are detected. A task completed by a single item is posted with that item named. A repeatable task is only judged per new item, since the whole log would complete it again at every opening |
 | `sources` | For `LOOT`. Loot sources that count, as named by the Loot Tracker. Leave out to accept any source |
-| `minValue` | For `DROP`. Minimum GE value of a single item in gp |
+| `minValue` | For `DROP`. Minimum value of a single item in gp, at Jagex's Grand Exchange guide price (the price source the in-game drop broadcast uses, whatever the member set in RuneLite) |
 | `valuePerPoint` | For `DROP`. Points are the item value divided by this, rounded to the nearest whole number with .5 rounding up, so 4.4M gives 4 and 4.5M gives 5 points |
 | `includeStackable` | For `DROP`. `true` also counts stackable items, valued as the whole stack. Defaults to `false` |
 | `minLevel` | For `DELVE`. Minimum delve level |
