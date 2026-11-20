@@ -2,7 +2,7 @@ package com.slayclan.task;
 
 import com.slayclan.activity.OwnedItem;
 import com.slayclan.config.TaskDefinition;
-import com.slayclan.discord.ProofStrip;
+import com.slayclan.discord.ProofBox;
 import com.slayclan.trigger.Triggers;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -24,8 +24,8 @@ import net.runelite.client.game.ItemManager;
 
 /**
  * Judges tasks on what the member holds and has reached right now, and says what completed a task judged on
- * the game's records, for the strip under its screenshot. Must be called on the client thread: RuneLite then
- * fills an item's icon in at once, so it is ready when the strip is drawn on another thread.
+ * the game's records, for the box drawn on its screenshot. Must be called on the client thread: RuneLite then
+ * fills an item's icon in at once, so it is ready when the box is drawn on another thread.
  */
 public class TaskProofs
 {
@@ -39,12 +39,12 @@ public class TaskProofs
 		this.itemManager = itemManager;
 	}
 
-	public ProofStrip.Proof listedItems(TaskDefinition task, List<OwnedItem> owned)
+	public ProofBox.Proof listedItems(TaskDefinition task, List<OwnedItem> owned)
 	{
 		List<OwnedItem> listed = owned.stream()
 			.filter(item -> Names.matchesAny(task.getItems(), item.getName()))
 			.collect(Collectors.toList());
-		return ProofStrip.Proof.of(listed, item -> new ProofStrip.Entry(item.getName(), itemManager.getImage(item.getId())));
+		return ProofBox.Proof.of(listed, item -> new ProofBox.Entry(item.getName(), itemManager.getImage(item.getId())));
 	}
 
 	/**
@@ -52,13 +52,13 @@ public class TaskProofs
 	 * value the game has not loaded yet is left out, like one that is not met. This runs on every experience drop,
 	 * so a task is only asked whether it is open once it is met, and its proof is only built when it is both.
 	 */
-	public Map<String, ProofStrip.Proof> thresholdsReached(List<TaskDefinition> tasks, Predicate<TaskDefinition> stillOpen)
+	public Map<String, ProofBox.Proof> thresholdsReached(List<TaskDefinition> tasks, Predicate<TaskDefinition> stillOpen)
 	{
 		List<OwnedItem> worn = items(client.getItemContainer(InventoryID.WORN));
 		List<OwnedItem> held = Stream.concat(worn.stream(), items(client.getItemContainer(InventoryID.INV)).stream())
 			.distinct()
 			.collect(Collectors.toList());
-		Map<String, ProofStrip.Proof> reached = new LinkedHashMap<>();
+		Map<String, ProofBox.Proof> reached = new LinkedHashMap<>();
 		for (TaskDefinition task : tasks)
 		{
 			reachedBy(task, worn, held)
@@ -73,7 +73,7 @@ public class TaskProofs
 		return names(items(container));
 	}
 
-	private Optional<Supplier<ProofStrip.Proof>> reachedBy(TaskDefinition task, List<OwnedItem> worn, List<OwnedItem> held)
+	private Optional<Supplier<ProofBox.Proof>> reachedBy(TaskDefinition task, List<OwnedItem> worn, List<OwnedItem> held)
 	{
 		String trigger = task.getTrigger();
 		if (trigger == null)
@@ -92,21 +92,21 @@ public class TaskProofs
 		{
 			return Optional.of(client.getVarpValue(VarPlayerID.COLLECTION_COUNT))
 				.filter(slots -> loadedAndEnoughSlots(task, slots))
-				.map(slots -> () -> ProofStrip.Proof.text(slots + " collection log slots"));
+				.map(slots -> () -> ProofBox.Proof.text(slots + " collection log slots"));
 		}
 		return ThresholdTaskEvaluator.xpSkill(trigger).flatMap(skill -> trainedTo(task, skill));
 	}
 
-	private Optional<Supplier<ProofStrip.Proof>> having(TaskDefinition task, List<OwnedItem> items)
+	private Optional<Supplier<ProofBox.Proof>> having(TaskDefinition task, List<OwnedItem> items)
 	{
 		return thresholds.isEquipped(task, names(items)) ? Optional.of(() -> listedItems(task, items)) : Optional.empty();
 	}
 
-	private Optional<Supplier<ProofStrip.Proof>> trainedTo(TaskDefinition task, Skill skill)
+	private Optional<Supplier<ProofBox.Proof>> trainedTo(TaskDefinition task, Skill skill)
 	{
 		return Optional.of(client.getSkillExperience(skill))
 			.filter(experience -> loadedAndEnoughExperience(task, experience))
-			.map(experience -> () -> ProofStrip.Proof.text(String.format(Locale.ENGLISH, "%s: %,d xp", skill.getName(), experience)));
+			.map(experience -> () -> ProofBox.Proof.text(String.format(Locale.ENGLISH, "%s: %,d xp", skill.getName(), experience)));
 	}
 
 	// The game reports 0 until it has loaded the value

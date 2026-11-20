@@ -2,7 +2,7 @@ package com.slayclan.task;
 
 import com.slayclan.activity.OwnedItem;
 import com.slayclan.config.TaskDefinition;
-import com.slayclan.discord.ProofStrip;
+import com.slayclan.discord.ProofBox;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -54,7 +54,7 @@ public class TaskProofsTest
 		when(itemManager.getImage(4151)).thenReturn(whipIcon);
 		TaskDefinition task = task("CLOG", "Abyssal whip", "Pharaoh's*");
 
-		ProofStrip.Proof proof = proofs.listedItems(task, List.of(
+		ProofBox.Proof proof = proofs.listedItems(task, List.of(
 			new OwnedItem(4151, "Abyssal whip", 1), new OwnedItem(995, "Coins", 100), new OwnedItem(26945, "Pharaohs sceptre", 1)));
 
 		assertEquals(List.of("Abyssal whip", "Pharaohs sceptre"), labels(proof));
@@ -62,7 +62,7 @@ public class TaskProofsTest
 	}
 
 	@Test
-	public void aTaskCompletedByMoreItemsThanTheStripShowsLoadsIconsOnlyForTheOnesShown()
+	public void aTaskCompletedByMoreItemsThanTheBoxShowsLoadsIconsOnlyForTheOnesShown()
 	{
 		List<OwnedItem> owned = new ArrayList<>();
 		for (int i = 0; i < 12; i++)
@@ -70,7 +70,7 @@ public class TaskProofsTest
 			owned.add(new OwnedItem(i + 1, "Rune pouch " + i, 1));
 		}
 
-		ProofStrip.Proof proof = proofs.listedItems(task("CLOG", "Rune pouch*"), owned);
+		ProofBox.Proof proof = proofs.listedItems(task("CLOG", "Rune pouch*"), owned);
 
 		assertEquals(8, proof.getShown().size());
 		assertEquals(4, proof.getLeftOut());
@@ -160,9 +160,9 @@ public class TaskProofsTest
 		assertEquals(Set.of(), proofs.itemNames(null));
 	}
 
-	private ProofStrip.Proof reached(TaskDefinition task)
+	private ProofBox.Proof reached(TaskDefinition task)
 	{
-		Map<String, ProofStrip.Proof> reached = proofs.thresholdsReached(List.of(task), open -> true);
+		Map<String, ProofBox.Proof> reached = proofs.thresholdsReached(List.of(task), open -> true);
 		assertEquals(Set.of(task.getId()), reached.keySet());
 		return reached.get(task.getId());
 	}
@@ -202,8 +202,8 @@ public class TaskProofsTest
 		return task;
 	}
 
-	private static List<String> labels(ProofStrip.Proof proof)
+	private static List<String> labels(ProofBox.Proof proof)
 	{
-		return proof.getShown().stream().map(ProofStrip.Entry::getLabel).collect(Collectors.toList());
+		return proof.getShown().stream().map(ProofBox.Entry::getLabel).collect(Collectors.toList());
 	}
 }

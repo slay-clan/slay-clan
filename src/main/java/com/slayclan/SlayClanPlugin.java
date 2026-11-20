@@ -30,7 +30,7 @@ import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostPayload;
-import com.slayclan.discord.ProofStrip;
+import com.slayclan.discord.ProofBox;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
 import com.slayclan.drop.DropJudgement;
@@ -153,6 +153,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static final int RECENT_TIME_MAX_AGE_TICKS = 10;
 	// Stats, equipment and the collection log count load during the first ticks after login
 	private static final int BASELINE_DELAY_TICKS = 5;
+	// The resizable minimap with its orbs is about 211 pixels wide
+	private static final int RESIZABLE_MINIMAP_CLEARANCE = 220;
 	// Backup for ActorDeath when clearing a used Yama contract
 	private static final String DEATH_MESSAGE = "Oh dear, you are dead!";
 	// Game messages containing these are logged when no detector recognises them, to diagnose changed texts
@@ -230,7 +232,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final GameDataTaskEvaluator gameDataTaskEvaluator = new GameDataTaskEvaluator(taskMatcher, timedTaskFilter);
 	private final ClanMembershipChecker membershipChecker = new ClanMembershipChecker();
 	private final MessageFormatter messageFormatter = new MessageFormatter();
-	private final ProofStrip proofStrip = new ProofStrip();
+	private final ProofBox proofBox = new ProofBox();
 	private final DropEvaluator dropEvaluator = new DropEvaluator();
 	private final CollectionLogDetector collectionLogDetector = new CollectionLogDetector();
 	private final ClogTaskEvaluator clogTaskEvaluator = new ClogTaskEvaluator();
@@ -787,7 +789,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		List<String> owned = ownedItems.stream().map(OwnedItem::getName).collect(Collectors.toList());
 		List<TaskDefinition> completed = new ArrayList<>();
 		Map<String, String> singleItems = new HashMap<>();
-		Map<String, ProofStrip.Proof> proofByTaskId = new HashMap<>();
+		Map<String, ProofBox.Proof> proofByTaskId = new HashMap<>();
 		for (TaskDefinition task : taskMatcher.byTrigger(remoteConfig, Triggers.CLOG))
 		{
 			if (!awaitsWholeLogJudgement(task))
@@ -822,7 +824,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	 * A task completed by a single item names that item, like a task completed by a new item in chat does.
 	 */
 	private void postClogTasks(List<TaskDefinition> tasks, Map<String, String> singleItems,
-		Map<String, ProofStrip.Proof> proofByTaskId)
+		Map<String, ProofBox.Proof> proofByTaskId)
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
@@ -902,7 +904,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			postTasksWithProof(
 				toPost.stream().map(SatisfiedTask::getTask).collect(Collectors.toList()),
 				toPost.stream().collect(Collectors.toMap(
-					found -> found.getTask().getId(), found -> ProofStrip.Proof.text(found.getProvenBy()))));
+					found -> found.getTask().getId(), found -> ProofBox.Proof.text(found.getProvenBy()))));
 		}
 	}
 
@@ -1275,7 +1277,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 
-		Map<String, ProofStrip.Proof> proofByTaskId = taskProofs.thresholdsReached(remoteConfig.getTasks(), task -> stillOpen(task.getId()));
+		Map<String, ProofBox.Proof> proofByTaskId = taskProofs.thresholdsReached(remoteConfig.getTasks(), task -> stillOpen(task.getId()));
 		List<TaskDefinition> reached = remoteConfig.getTasks().stream()
 			.filter(task -> proofByTaskId.containsKey(task.getId()))
 			.collect(Collectors.toList());
@@ -1393,7 +1395,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		postWithScreenshot(botTarget(), taskPosts(tasks, party));
 	}
 
-	private void postTasksWithProof(List<TaskDefinition> tasks, Map<String, ProofStrip.Proof> proofByTaskId)
+	private void postTasksWithProof(List<TaskDefinition> tasks, Map<String, ProofBox.Proof> proofByTaskId)
 	{
 		postWithProof(botTarget(), taskPosts(tasks, List.of()), proofByTaskId);
 	}
@@ -1653,13 +1655,30 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	/**
 	 * For tasks judged on the game's own records: the frame shows whatever the member has open, so each post gets
-	 * what completed its task drawn under it. A post made from something that just happened keeps the plain frame.
+	 * what completed its task drawn on it. A post made from something that just happened keeps the plain frame.
 	 */
-	private void postWithProof(BotTarget target, List<PostPayload> posts, Map<String, ProofStrip.Proof> proofByTaskId)
+	private void postWithProof(BotTarget target, List<PostPayload> posts, Map<String, ProofBox.Proof> proofByTaskId)
 	{
 		Account account = playingAccount();
+		ProofBox.Area freeGameView = freeGameView();
 		screenshotService.captureFrame(frame -> sendInTurn(posts.iterator(), payload -> activityReporter.send(target, account.stamp(payload),
-			ScreenshotService.toPng(proofStrip.addTo(frame, proofByTaskId.get(payload.getTaskId()))))));
+			ScreenshotService.toPng(proofBox.addTo(frame, proofByTaskId.get(payload.getTaskId()), freeGameView)))));
+	}
+
+	/**
+	 * In fixed mode the 3D view sits left of the side panel; in resizable mode it fills the canvas and the minimap is
+	 * drawn over its top right corner, so the box keeps clear of both sides by the minimap's width.
+	 */
+	private ProofBox.Area freeGameView()
+	{
+		int canvasWidth = client.getCanvasWidth();
+		if (!client.isResized())
+		{
+			return new ProofBox.Area(client.getViewportXOffset(), client.getViewportYOffset(),
+				client.getViewportWidth(), client.getViewportHeight(), canvasWidth, client.getCanvasHeight());
+		}
+		int width = Math.max(canvasWidth - 2 * RESIZABLE_MINIMAP_CLEARANCE, canvasWidth / 3);
+		return new ProofBox.Area((canvasWidth - width) / 2, 0, width, client.getCanvasHeight(), canvasWidth, client.getCanvasHeight());
 	}
 
 	// Each post has its own full-size image, so the next one is only drawn once the bot has answered the one before
