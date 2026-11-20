@@ -29,23 +29,30 @@ public class GameDataTaskEvaluator
 		this.timedTaskFilter = timedTaskFilter;
 	}
 
-	public List<TaskDefinition> fromCombatAchievements(RemoteConfig config, List<CompletedAchievement> completed)
+	public List<SatisfiedTask> fromCombatAchievements(RemoteConfig config, List<CompletedAchievement> completed)
 	{
 		return eachOnce(completed.stream().flatMap(achievement -> taskMatcher.match(config,
-			List.of(Triggers.combatAchievement(achievement.getName()), Triggers.combatAchievementId(achievement.getId())), 1).stream()));
+			List.of(Triggers.combatAchievement(achievement.getName()), Triggers.combatAchievementId(achievement.getId())), 1).stream()
+			.map(task -> new SatisfiedTask(task, "Combat achievement: " + achievement.getName()))));
 	}
 
-	public List<TaskDefinition> fromStoredBests(RemoteConfig config, List<StoredPersonalBest> bests)
+	public List<SatisfiedTask> fromStoredBests(RemoteConfig config, List<StoredPersonalBest> bests)
 	{
-		return eachOnce(bests.stream().map(StoredBestRun::of).flatMap(run ->
-			taskMatcher.match(config, run.getTrigger(), Math.max(run.getTeamSize(), 1)).stream()
-				.filter(task -> timedTaskFilter.accepts(task, List.of(run.getTime()), run.getTeamSize(), UNKNOWN_KILL_COUNT))));
+		return eachOnce(bests.stream().flatMap(best -> satisfiedBy(config, best)));
 	}
 
-	private static List<TaskDefinition> eachOnce(Stream<TaskDefinition> tasks)
+	private Stream<SatisfiedTask> satisfiedBy(RemoteConfig config, StoredPersonalBest best)
 	{
-		Map<String, TaskDefinition> byId = new LinkedHashMap<>();
-		tasks.filter(GameDataTaskEvaluator::judgedFromGameData).forEach(task -> byId.putIfAbsent(task.getId(), task));
+		StoredBestRun run = StoredBestRun.of(best);
+		return taskMatcher.match(config, run.getTrigger(), Math.max(run.getTeamSize(), 1)).stream()
+			.filter(task -> timedTaskFilter.accepts(task, List.of(run.getTime()), run.getTeamSize(), UNKNOWN_KILL_COUNT))
+			.map(task -> new SatisfiedTask(task, "Personal best: " + best.getBoss() + " " + best.getTime()));
+	}
+
+	private static List<SatisfiedTask> eachOnce(Stream<SatisfiedTask> satisfied)
+	{
+		Map<String, SatisfiedTask> byId = new LinkedHashMap<>();
+		satisfied.filter(found -> judgedFromGameData(found.getTask())).forEach(found -> byId.putIfAbsent(found.getTask().getId(), found));
 		return List.copyOf(byId.values());
 	}
 

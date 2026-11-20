@@ -39,6 +39,12 @@ public class ScreenshotService
 
 	public void capture(Consumer<byte[]> onCaptured)
 	{
+		captureFrame(frame -> onCaptured.accept(toPng(frame)));
+	}
+
+	/** Hands over the frame itself, or null when it could not be read, on the executor. */
+	public void captureFrame(Consumer<BufferedImage> onCaptured)
+	{
 		clientThread.invoke(() ->
 		{
 			boolean hidden = hidePrivateMessages();
@@ -48,7 +54,7 @@ public class ScreenshotService
 				{
 					clientThread.invoke(this::showPrivateMessages);
 				}
-				executor.submit(() -> onCaptured.accept(toPng(image)));
+				executor.submit(() -> onCaptured.accept(buffered(image)));
 			});
 		});
 	}
@@ -84,18 +90,34 @@ public class ScreenshotService
 		}
 	}
 
-	private static byte[] toPng(Image image)
+	private static BufferedImage buffered(Image image)
 	{
 		try
 		{
-			BufferedImage buffered = ImageUtil.bufferedImageFromImage(image);
+			return ImageUtil.bufferedImageFromImage(image);
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("Screenshot failed, posting without image", e);
+			return null;
+		}
+	}
+
+	public static byte[] toPng(BufferedImage frame)
+	{
+		if (frame == null)
+		{
+			return null;
+		}
+		try
+		{
 			ByteArrayOutputStream out = new ByteArrayOutputStream();
-			ImageIO.write(buffered, "png", out);
+			ImageIO.write(frame, "png", out);
 			return out.toByteArray();
 		}
 		catch (IOException | RuntimeException e)
 		{
-			log.warn("Screenshot failed, posting without image", e);
+			log.warn("Screenshot could not be encoded, posting without image", e);
 			return null;
 		}
 	}

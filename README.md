@@ -30,7 +30,7 @@ PvP loot and loot keys never count. Nothing is posted on Deadman, Leagues, speed
 
 ![A clan task awaiting review in the clan Discord](docs/images/review-post.png)
 
-Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window. Your private messages are left out of it as long as **Hide private messages** is on, which needs "Split friends private chat" on in the game settings. Nothing else is sent. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
+Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window. Your private messages are left out of it as long as **Hide private messages** is on, which needs "Split friends private chat" on in the game settings. Nothing else is sent. A task that is judged from what the game remembers, such as your whole collection log, your completed combat achievements, a stored personal best or the items you wear, has a strip added under the screenshot with the icons and names of what completed it, since the screenshot itself shows whatever you had open. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
 
 ## What the plugin cannot see
 
@@ -50,7 +50,7 @@ Report it in the clan's bug report channel. Not in Slay Clan? Open an issue on [
 
 The log says why a task was skipped. Submit the task by hand in the meantime.
 
-If the bot cannot be reached, the post is kept and sent again later without the screenshot. Posts older than a week are dropped, and the plugin tells you at login so you can submit them by hand.
+If the bot cannot be reached, the post is kept and sent again later with its screenshot, which waits in the plugin's folder under `.runelite/plugin-data` until the bot has answered and is then deleted. Posts older than a week are dropped together with their screenshots, and the plugin tells you at login so you can submit them by hand.
 
 ## For clan staff
 

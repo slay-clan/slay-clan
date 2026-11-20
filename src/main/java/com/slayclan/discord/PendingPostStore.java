@@ -55,16 +55,18 @@ public class PendingPostStore
 		return fresh;
 	}
 
-	public synchronized void add(PostPayload payload, Instant createdAt)
+	/** Returns the posts this one pushed out of a full queue, so what else was kept for them can go too. */
+	public synchronized List<PendingPost> add(PostPayload payload, Instant createdAt, boolean screenshotKept)
 	{
 		List<PendingPost> posts = new ArrayList<>(load(createdAt));
-		posts.add(new PendingPost(createdAt.toString(), payload));
-		if (posts.size() > MAX_POSTS)
+		posts.add(new PendingPost(createdAt.toString(), payload, screenshotKept));
+		int pushedOut = Math.max(0, posts.size() - MAX_POSTS);
+		if (pushedOut > 0)
 		{
-			countDropped(posts.size() - MAX_POSTS);
-			posts = posts.subList(posts.size() - MAX_POSTS, posts.size());
+			countDropped(pushedOut);
 		}
-		save(posts);
+		save(posts.subList(pushedOut, posts.size()));
+		return List.copyOf(posts.subList(0, pushedOut));
 	}
 
 	public synchronized void remove(PendingPost post)
