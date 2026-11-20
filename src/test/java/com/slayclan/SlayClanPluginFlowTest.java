@@ -1,5 +1,9 @@
 package com.slayclan;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.google.gson.Gson;
 import com.slayclan.activity.CollectionLogCapture;
 import com.slayclan.activity.CombatAchievementReader;
@@ -95,6 +99,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.slf4j.LoggerFactory;
 
 /**
  * Drives the plugin through game events and checks what reaches Discord. Memory is faked with sets so the
@@ -154,6 +159,7 @@ public class SlayClanPluginFlowTest
 	private SlayClanPlugin plugin;
 
 	private final RemoteConfig remoteConfig = new RemoteConfig();
+	private final ListAppender<ILoggingEvent> pluginLog = new ListAppender<>();
 	private final Set<String> completed = new HashSet<>();
 	private final Set<String> judged = new HashSet<>();
 	private int tick = 100;
@@ -161,6 +167,8 @@ public class SlayClanPluginFlowTest
 	@Before
 	public void setUp()
 	{
+		pluginLog.start();
+		pluginLogger().addAppender(pluginLog);
 		remoteConfig.setClanName("Slay Clan");
 		when(remoteConfigService.current()).thenReturn(remoteConfig);
 		when(remoteConfigService.refresh(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -229,6 +237,8 @@ public class SlayClanPluginFlowTest
 	@After
 	public void tearDown()
 	{
+		pluginLogger().detachAppender(pluginLog);
+		pluginLog.stop();
 		plugin.shutDown();
 	}
 
@@ -1914,10 +1924,145 @@ public class SlayClanPluginFlowTest
 		when(participantReader.read(anyString())).thenReturn(List.of(names));
 	}
 
+	@Test
+	public void valuableStackableDropIsNotPostedAndTheLogSaysStackablesDoNotCount()
+	{
+		tasks(dropsFrom500k());
+
+		lootStackable("Vorkath", "Venator shard", 14_882_505L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Venator shard (14,882,505 gp) not posted: stackable items do not count"), valuableDropLogLines());
+	}
+
+	@Test
+	public void valuableDropIsPostedWithoutALogLineAboutIt()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(1, posted("drop").size());
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void dropBelowTheMinimumValueIsNotPostedAndLeavesNoLogLine()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Vorkath", "Rune platebody", 38_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void valuableDropWithoutAClanTokenIsNotPostedAndTheLogNamesTheMissingToken()
+	{
+		tasks(dropsFrom500k());
+		when(config.clanToken()).thenReturn("");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Dragonbone necklace (5,000,000 gp) not posted: posting blocked (clan token not set)"),
+			valuableDropLogLines());
+	}
+
+	@Test
+	public void secondValuableDropWithoutAClanTokenInTheSameLoginLeavesNoFurtherLogLine()
+	{
+		tasks(dropsFrom500k());
+		when(config.clanToken()).thenReturn("");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+		loot("Vorkath", "Draconic visage", 3_000_000L);
+
+		assertEquals(1, valuableDropLogLines().size());
+	}
+
+	@Test
+	public void valuableDropWithThePluginTurnedOffLeavesNoLogLine()
+	{
+		tasks(dropsFrom500k());
+		when(remoteConfigService.current()).thenReturn(null);
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void stackableDropPostedByAnotherDropTaskIsNotLoggedAsLeftOut()
+	{
+		TaskDefinition stackablesToo = dropsFrom500k();
+		stackablesToo.setId("drops-with-stackables");
+		stackablesToo.setIncludeStackable(true);
+		tasks(dropsFrom500k(), stackablesToo);
+
+		lootStackable("Vorkath", "Venator shard", 14_882_505L);
+
+		assertEquals(1, posted("drop").size());
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void lootWithoutADropTaskInTheClanConfigSaysSoOnceInTheLog()
+	{
+		tasks();
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(1, pluginLog.list.stream()
+			.filter(event -> event.getFormattedMessage().equals("No DROP task in the clan config, so valuable drops are not posted"))
+			.count());
+	}
+
+	@Test
+	public void valuableDropOutsideTheConfiguredClanIsNotPostedAndTheLogSaysSo()
+	{
+		tasks(dropsFrom500k());
+		when(clan.getName()).thenReturn("Other Clan");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Dragonbone necklace (5,000,000 gp) not posted: not in the configured clan Slay Clan"),
+			valuableDropLogLines());
+	}
+
+	private List<String> valuableDropLogLines()
+	{
+		return pluginLog.list.stream()
+			.filter(event -> event.getLevel() == Level.INFO)
+			.map(ILoggingEvent::getFormattedMessage)
+			.filter(line -> line.startsWith("Valuable drop"))
+			.collect(Collectors.toList());
+	}
+
+	private static Logger pluginLogger()
+	{
+		return (Logger) LoggerFactory.getLogger(SlayClanPlugin.class);
+	}
+
+	private void lootStackable(String source, String itemName, long price)
+	{
+		loot(source, itemName, price, true);
+	}
+
 	private void loot(String source, String itemName, long price)
+	{
+		loot(source, itemName, price, false);
+	}
+
+	private void loot(String source, String itemName, long price, boolean stackable)
 	{
 		ItemComposition item = mock(ItemComposition.class);
 		when(item.getName()).thenReturn(itemName);
+		when(item.isStackable()).thenReturn(stackable);
 		when(itemManager.getItemComposition(HORN_OF_BRAN)).thenReturn(item);
 		when(itemManager.canonicalize(HORN_OF_BRAN)).thenReturn(HORN_OF_BRAN);
 		when(itemManager.getItemPriceWithSource(HORN_OF_BRAN, false)).thenReturn(price);

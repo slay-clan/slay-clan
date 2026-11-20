@@ -32,7 +32,9 @@ import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ProofStrip;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
+import com.slayclan.drop.DropJudgement;
 import com.slayclan.drop.PricedItem;
+import com.slayclan.drop.SkippedDrop;
 import com.slayclan.drop.ValuableDrop;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
@@ -70,6 +72,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -253,6 +256,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private PersonalBestReader personalBestReader;
 	// Logged once per login, as every event would otherwise repeat it
 	private boolean postingBlockedLogged;
+	private boolean noDropTaskLogged;
+	private boolean blockedDropLogged;
 	// Read once per login on the client thread, since canPost also runs on the executor
 	private volatile boolean mainGameWorld = true;
 	// Each said once per login and once per settings change, as every post would otherwise repeat it
@@ -342,6 +347,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		botClient.cancelRetries();
 		blockersSaid.clear();
 		postingBlockedLogged = false;
+		noDropTaskLogged = false;
+		blockedDropLogged = false;
 		if (CLAN_CONFIG_KEYS.contains(event.getKey()))
 		{
 			clanConfigChanged.set(true);
@@ -423,6 +430,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private void scheduleLoginChecks()
 	{
 		postingBlockedLogged = false;
+		noDropTaskLogged = false;
+		blockedDropLogged = false;
 		blockersSaid.clear();
 		statusCheckPending = true;
 		caSnapshotPending = true;
@@ -1435,7 +1444,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
 		Player localPlayer = client.getLocalPlayer();
-		if (!canPost() || remoteConfig == null || localPlayer == null)
+		if (remoteConfig == null || localPlayer == null)
 		{
 			return;
 		}
@@ -1444,17 +1453,37 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		List<TaskDefinition> lootTasks = taskMatcher.byTrigger(remoteConfig, Triggers.LOOT).stream()
 			.filter(this::notYetPosted)
 			.collect(Collectors.toList());
-		if ((dropTasks.isEmpty() && lootTasks.isEmpty())
-			|| !membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName()))
+		if (dropTasks.isEmpty())
 		{
-			log.debug("Ignoring loot from {}: no loot task or not in the configured clan", source);
+			logNoDropTaskOnce();
+		}
+		if (noTaskJudgesLoot(dropTasks, lootTasks))
+		{
+			log.debug("Ignoring loot from {}: no loot task", source);
 			return;
 		}
 
 		List<PricedItem> pricedItems = items.stream().map(this::price).collect(Collectors.toList());
-		List<ValuableDrop> drops = dropTasks.stream()
-			.flatMap(task -> dropEvaluator.evaluate(pricedItems, task).stream())
+		List<DropJudgement> judgements = dropTasks.stream()
+			.map(task -> dropEvaluator.evaluate(pricedItems, task))
 			.collect(Collectors.toList());
+		List<ValuableDrop> drops = judgements.stream()
+			.flatMap(judgement -> judgement.getDrops().stream())
+			.collect(Collectors.toList());
+		Set<String> postedItems = drops.stream().map(ValuableDrop::getItemName).collect(Collectors.toSet());
+		judgements.stream()
+			.flatMap(judgement -> judgement.getSkipped().stream())
+			.filter(skipped -> !postedItems.contains(skipped.getItemName()))
+			.distinct()
+			.forEach(this::logValuableDropNotPosted);
+		Optional<String> clanPostingBlocker = clanPostingBlocker(remoteConfig);
+		if (clanPostingBlocker.isPresent())
+		{
+			logBlockedDropOncePerLogin(drops, clanPostingBlocker.get());
+			log.debug("Ignoring loot from {}: {}", source, clanPostingBlocker.get());
+			return;
+		}
+
 		List<LootMatch> lootMatches = lootMatches(lootTasks, source, pricedItems);
 		Optional<ClanTeam> team = teamMatters(drops, lootMatches) ? clanTeamAt(source, remoteConfig) : Optional.empty();
 		Instant completedAt = Instant.now();
@@ -1483,6 +1512,37 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		if (!posts.isEmpty())
 		{
 			postWithScreenshot(botTarget(), posts);
+		}
+	}
+
+	private static boolean noTaskJudgesLoot(List<TaskDefinition> dropTasks, List<TaskDefinition> lootTasks)
+	{
+		return dropTasks.isEmpty() && lootTasks.isEmpty();
+	}
+
+	// The blocker is the same for every drop until the settings change, so one example per login is enough
+	private void logBlockedDropOncePerLogin(List<ValuableDrop> drops, String blocker)
+	{
+		drops.stream().findFirst().filter(drop -> !blockedDropLogged).ifPresent(drop ->
+		{
+			blockedDropLogged = true;
+			logValuableDropNotPosted(new SkippedDrop(drop.getItemName(), drop.getValue(), blocker));
+		});
+	}
+
+	// At INFO so the reason reaches the member's client.log; only items at or above minValue get here
+	private void logValuableDropNotPosted(SkippedDrop skipped)
+	{
+		log.info("Valuable drop {} ({} gp) not posted: {}", skipped.getItemName(),
+			String.format(Locale.ROOT, "%,d", skipped.getValue()), skipped.getReason());
+	}
+
+	private void logNoDropTaskOnce()
+	{
+		if (!noDropTaskLogged)
+		{
+			noDropTaskLogged = true;
+			log.info("No DROP task in the clan config, so valuable drops are not posted");
 		}
 	}
 
@@ -1606,9 +1666,29 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	private boolean canPostForClan()
 	{
-		RemoteConfig remoteConfig = remoteConfigService.current();
-		return canPost() && remoteConfig != null && client.getLocalPlayer() != null
-			&& membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName());
+		return clanPostingBlocker(remoteConfigService.current()).isEmpty();
+	}
+
+	private Optional<String> clanPostingBlocker(RemoteConfig remoteConfig)
+	{
+		List<String> blockers = postingBlockers();
+		if (!canPost(blockers))
+		{
+			return Optional.of("posting blocked (" + String.join(", ", blockers) + ")");
+		}
+		if (remoteConfig == null)
+		{
+			return Optional.of("clan config not loaded");
+		}
+		if (client.getLocalPlayer() == null)
+		{
+			return Optional.of("not logged in");
+		}
+		if (!membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName()))
+		{
+			return Optional.of("not in the configured clan " + remoteConfig.getClanName());
+		}
+		return Optional.empty();
 	}
 
 	/**
@@ -1617,15 +1697,48 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && hasSecretSafeBotUrl() && !clanToken().isEmpty() && profileSyncsToAccount()
-			&& onMainGameWorld();
-		if (!canPost && !postingBlockedLogged)
+		return canPost(postingBlockers());
+	}
+
+	private boolean canPost(List<String> blockers)
+	{
+		if (blockedButNotYetSaid(blockers))
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, bot URL usable={}, clan token set={}, profile synced={}, main game world={}",
-				config.enabled(), hasSecretSafeBotUrl(), !clanToken().isEmpty(), profileSyncsToAccount(), onMainGameWorld());
+			log.info("Posting blocked: {}", String.join(", ", blockers));
 		}
-		return canPost;
+		return blockers.isEmpty();
+	}
+
+	private boolean blockedButNotYetSaid(List<String> blockers)
+	{
+		return !blockers.isEmpty() && !postingBlockedLogged;
+	}
+
+	private List<String> postingBlockers()
+	{
+		List<String> blockers = new ArrayList<>();
+		if (!config.enabled())
+		{
+			blockers.add("plugin turned off");
+		}
+		if (!hasSecretSafeBotUrl())
+		{
+			blockers.add("bot URL not usable");
+		}
+		if (clanToken().isEmpty())
+		{
+			blockers.add("clan token not set");
+		}
+		if (!profileSyncsToAccount())
+		{
+			blockers.add("profile not synced to a RuneLite account");
+		}
+		if (!onMainGameWorld())
+		{
+			blockers.add("not on a main game world");
+		}
+		return blockers;
 	}
 
 	// Posts carry the member's token

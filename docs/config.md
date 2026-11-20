@@ -96,6 +96,8 @@ Loot is judged by the team the same way personal bests are. At a raid's reward c
 
 Loot from other players (PvP) and from loot keys is never counted for `DROP` or `LOOT` tasks.
 
+An item worth at least `minValue` that is not posted, for example a stackable item while `includeStackable` is `false`, leaves a line with the item, its value and the reason in RuneLite's `client.log`.
+
 ## Thresholds and equipment
 
 An `EQUIP`, `HOLD`, `XP:` or `CLOG_COUNT` task is posted as soon as the plugin sees the condition met, also when the player reached it before installing the plugin. These tasks are always posted at most once.
