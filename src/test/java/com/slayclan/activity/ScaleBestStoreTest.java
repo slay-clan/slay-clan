@@ -40,16 +40,6 @@ public class ScaleBestStoreTest
 	}
 
 	@Test
-	public void remembersWhichBossesHadTheirGameBestReported()
-	{
-		assertFalse(store.isGameBestReported(42L, "Yama"));
-
-		store.markGameBestReported(42L, "Yama");
-
-		verify(configManager).setConfiguration("slayclanmemory", "gamebestreported.42.yama", "true");
-	}
-
-	@Test
 	public void aNewSeasonForgetsTheKillsOfTheOldOne()
 	{
 		when(configManager.getConfiguration("slayclanmemory", "scalebest.42.yama.single.1")).thenReturn("300.0");

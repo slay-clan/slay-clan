@@ -27,11 +27,9 @@ public class BotClientTest
 	public final MockWebServer server = new MockWebServer();
 
 	private final PostPayload task = new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Task", "Clan Raid", "Tier", "Repeatable"), null, false, null);
+		Map.of("Task", "Clan Raid", "Tier", "Repeatable"), null, null);
 	private final PostPayload clog = new PostPayload("clog", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Item", "Vorki"), null, false, null);
-	private final PostPayload currentBest = new PostPayload("pb", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
-		Map.of("Boss", "Zulrah", "New", "no"), null, true, null);
+		Map.of("Item", "Vorki"), null, null);
 
 	private ScheduledExecutorService executor;
 	private BotClient client;
@@ -100,15 +98,6 @@ public class BotClientTest
 		server.enqueue(recorded());
 
 		assertNull(send(clog, null).getMessage());
-	}
-
-	@Test
-	public void saysNothingAboutARecordedQuietPost() throws Exception
-	{
-		server.enqueue(recorded());
-
-		assertNull(send(currentBest, null).getMessage());
-		assertFalse(server.takeRequest().getBody().readUtf8().contains("quiet"));
 	}
 
 	@Test

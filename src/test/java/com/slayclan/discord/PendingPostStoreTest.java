@@ -24,7 +24,7 @@ public class PendingPostStoreTest
 	private ConfigManager configManager;
 	private PendingPostStore store;
 	private final PostPayload payload = new PostPayload("task", "0123456789abcdef", "Clanmate", null, NOW.toString(),
-		Map.of("Task", "Clan Raid"), null, false, null);
+		Map.of("Task", "Clan Raid"), null, null);
 
 	@Before
 	public void setUp()
