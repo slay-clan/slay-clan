@@ -45,10 +45,33 @@ public class ProofStripTest
 	{
 		BufferedImage result = strip.addTo(frame, proof(item("Abyssal whip")));
 
-		int iconTop = FRAME_HEIGHT + ProofStrip.PADDING + (ProofStrip.ROW_HEIGHT - ICON_HEIGHT) / 2;
+		Span icon = redSpan(result);
 		assertEquals(ProofStrip.BACKGROUND.getRGB(), result.getRGB(FRAME_WIDTH - 1, FRAME_HEIGHT));
-		assertEquals(Color.RED.getRGB(), result.getRGB(ProofStrip.PADDING, iconTop));
-		assertEquals(1, rowsWithText(result, ProofStrip.PADDING + ICON_WIDTH));
+		assertTrue("the icon is drawn", icon.found());
+		assertEquals(1, rowsWithText(result, icon.right + 1));
+	}
+
+	@Test
+	public void theItemIconIsDrawnLargerThanTheGameSprite()
+	{
+		BufferedImage result = strip.addTo(frame, proof(item("Abyssal whip")));
+
+		Span icon = redSpan(result);
+		assertEquals(ProofStrip.iconHeight(item("Abyssal whip").getIcon(), 1), icon.bottom - icon.top + 1);
+		assertTrue(icon.bottom - icon.top + 1 > ICON_HEIGHT);
+	}
+
+	@Test
+	public void theProofIsCenteredUnderTheFrame()
+	{
+		BufferedImage result = strip.addTo(frame, proof(item("Abyssal whip")));
+
+		int left = redSpan(result).left;
+		int right = lastTextColumn(result);
+		int marginLeft = left;
+		int marginRight = FRAME_WIDTH - 1 - right;
+		assertTrue("left margin " + marginLeft + " and right margin " + marginRight + " differ",
+			Math.abs(marginLeft - marginRight) <= 4);
 	}
 
 	@Test
@@ -113,8 +136,9 @@ public class ProofStripTest
 
 		BufferedImage result = strip.addTo(large, proof(item("Abyssal whip")));
 
+		Span icon = redSpan(result);
 		assertEquals(FRAME_HEIGHT + 2 * ONE_ROW, result.getHeight());
-		assertEquals(Color.RED.getRGB(), result.getRGB(2 * ProofStrip.PADDING + 2 * ICON_WIDTH - 1, FRAME_HEIGHT + ONE_ROW));
+		assertEquals(ProofStrip.iconHeight(item("Abyssal whip").getIcon(), 2), icon.bottom - icon.top + 1);
 	}
 
 	@Test
@@ -151,6 +175,39 @@ public class ProofStripTest
 			}
 		}
 		return image;
+	}
+
+	private static class Span
+	{
+		int left = Integer.MAX_VALUE;
+		int right = -1;
+		int top = Integer.MAX_VALUE;
+		int bottom = -1;
+
+		boolean found()
+		{
+			return right >= 0;
+		}
+	}
+
+	// Icons are the only thing drawn in red
+	private static Span redSpan(BufferedImage result)
+	{
+		Span span = new Span();
+		for (int x = 0; x < result.getWidth(); x++)
+		{
+			for (int y = FRAME_HEIGHT; y < result.getHeight(); y++)
+			{
+				if (result.getRGB(x, y) == Color.RED.getRGB())
+				{
+					span.left = Math.min(span.left, x);
+					span.right = Math.max(span.right, x);
+					span.top = Math.min(span.top, y);
+					span.bottom = Math.max(span.bottom, y);
+				}
+			}
+		}
+		return span;
 	}
 
 	// Labels are the only thing drawn in white, so a white pixel in a row means a name was written there

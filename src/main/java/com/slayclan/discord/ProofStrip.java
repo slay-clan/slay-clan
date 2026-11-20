@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.font.FontRenderContext;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -57,11 +58,13 @@ public class ProofStrip
 
 	// Two rows in a fixed-size client window; a task with more items says how many are left out
 	static final int MAX_ENTRIES = 8;
-	static final int PADDING = 6;
-	// An item sprite is 32 high
-	static final int ROW_HEIGHT = 36;
-	private static final int ICON_GAP = 4;
-	private static final int ENTRY_GAP = 14;
+	static final int PADDING = 8;
+	// An item sprite is 32 high and is drawn at one and a half times that, so it reads like the strip's larger text
+	static final int ROW_HEIGHT = 56;
+	static final double ICON_ZOOM = 1.5;
+	private static final float FONT_ZOOM = 1.5f;
+	private static final int ICON_GAP = 6;
+	private static final int ENTRY_GAP = 20;
 	// From about 4K on the strip is drawn at twice the size, where its text would otherwise be too small to read
 	static final int FRAME_WIDTH_PER_SIZE_STEP = 1900;
 	static final Color BACKGROUND = ColorScheme.DARKER_GRAY_COLOR;
@@ -74,6 +77,13 @@ public class ProofStrip
 		Entry entry;
 		int x;
 		int row;
+	}
+
+	@Value
+	private static class Sized
+	{
+		Entry entry;
+		int width;
 	}
 
 	/**
@@ -115,7 +125,7 @@ public class ProofStrip
 	private static BufferedImage draw(BufferedImage frame, List<Entry> entries, int size)
 	{
 		Font runescape = FontManager.getRunescapeFont();
-		Font font = runescape.deriveFont((float) runescape.getSize() * size);
+		Font font = runescape.deriveFont(runescape.getSize() * FONT_ZOOM * size);
 		List<Placed> placed = layout(entries, font, frame.getWidth(), size);
 		int rows = placed.get(placed.size() - 1).getRow() + 1;
 		int stripHeight = (2 * PADDING + rows * ROW_HEIGHT) * size;
@@ -124,6 +134,7 @@ public class ProofStrip
 		try
 		{
 			graphics.drawImage(frame, 0, 0, null);
+			graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 			graphics.setColor(BACKGROUND);
 			graphics.fillRect(0, frame.getHeight(), frame.getWidth(), stripHeight);
 			graphics.setFont(font);
@@ -143,32 +154,62 @@ public class ProofStrip
 	private static List<Placed> layout(List<Entry> entries, Font font, int width, int size)
 	{
 		List<Placed> placed = new ArrayList<>();
-		int left = PADDING * size;
-		int x = left;
-		int row = 0;
-		for (Entry entry : entries)
+		List<List<Sized>> rows = fillRows(entries, font, width, size);
+		for (int row = 0; row < rows.size(); row++)
 		{
-			int entryWidth = iconSpace(entry, size) + (int) Math.ceil(font.getStringBounds(entry.getLabel(), PLAIN_TEXT).getWidth());
-			if (needsANewRow(x, entryWidth, left, width))
+			int x = (width - rowWidth(rows.get(row), size)) / 2;
+			for (Sized sized : rows.get(row))
 			{
-				x = left;
-				row++;
+				placed.add(new Placed(sized.getEntry(), Math.max(PADDING * size, x), row));
+				x += sized.getWidth() + ENTRY_GAP * size;
 			}
-			placed.add(new Placed(entry, x, row));
-			x += entryWidth + ENTRY_GAP * size;
 		}
 		return placed;
 	}
 
-	// An entry wider than the whole strip stays on the row it starts, rather than leaving an empty row above it
-	private static boolean needsANewRow(int x, int entryWidth, int left, int width)
+	private static List<List<Sized>> fillRows(List<Entry> entries, Font font, int width, int size)
 	{
-		return x > left && x + entryWidth > width - left;
+		List<List<Sized>> rows = new ArrayList<>();
+		List<Sized> row = new ArrayList<>();
+		int usable = width - 2 * PADDING * size;
+		for (Entry entry : entries)
+		{
+			Sized sized = new Sized(entry, iconSpace(entry, size) + (int) Math.ceil(font.getStringBounds(entry.getLabel(), PLAIN_TEXT).getWidth()));
+			if (needsANewRow(row, sized, usable, size))
+			{
+				rows.add(row);
+				row = new ArrayList<>();
+			}
+			row.add(sized);
+		}
+		rows.add(row);
+		return rows;
+	}
+
+	// An entry wider than the whole strip stays on the row it starts, rather than leaving an empty row above it
+	private static boolean needsANewRow(List<Sized> row, Sized next, int usable, int size)
+	{
+		return !row.isEmpty() && rowWidth(row, size) + ENTRY_GAP * size + next.getWidth() > usable;
+	}
+
+	private static int rowWidth(List<Sized> row, int size)
+	{
+		return row.stream().mapToInt(Sized::getWidth).sum() + Math.max(0, row.size() - 1) * ENTRY_GAP * size;
 	}
 
 	private static int iconSpace(Entry entry, int size)
 	{
-		return entry.getIcon() == null ? 0 : (entry.getIcon().getWidth() + ICON_GAP) * size;
+		return entry.getIcon() == null ? 0 : iconWidth(entry.getIcon(), size) + ICON_GAP * size;
+	}
+
+	static int iconWidth(BufferedImage icon, int size)
+	{
+		return (int) Math.round(icon.getWidth() * ICON_ZOOM * size);
+	}
+
+	static int iconHeight(BufferedImage icon, int size)
+	{
+		return (int) Math.round(icon.getHeight() * ICON_ZOOM * size);
 	}
 
 	private static void drawEntry(Graphics2D graphics, Placed placed, int rowTop, int size)
@@ -177,8 +218,8 @@ public class ProofStrip
 		BufferedImage icon = placed.getEntry().getIcon();
 		if (icon != null)
 		{
-			int iconHeight = icon.getHeight() * size;
-			graphics.drawImage(icon, placed.getX(), rowTop + (rowHeight - iconHeight) / 2, icon.getWidth() * size, iconHeight, null);
+			int iconHeight = iconHeight(icon, size);
+			graphics.drawImage(icon, placed.getX(), rowTop + (rowHeight - iconHeight) / 2, iconWidth(icon, size), iconHeight, null);
 		}
 		FontMetrics metrics = graphics.getFontMetrics();
 		int baseline = rowTop + (rowHeight - metrics.getHeight()) / 2 + metrics.getAscent();
