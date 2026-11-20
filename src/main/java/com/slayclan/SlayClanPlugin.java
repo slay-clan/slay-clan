@@ -452,7 +452,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		thresholdCheckPending = true;
 		setupWarningPending = true;
 		loginTick = client.getTickCount();
-		gameViewWatch.onLogin(loginTick);
+		gameViewWatch.onLogin();
 		mainGameWorld = MainGameWorld.sharesMainGameProgress(client.getWorldType());
 	}
 
