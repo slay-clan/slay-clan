@@ -99,6 +99,7 @@ import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ScriptCallbackEvent;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.ItemContainerChanged;
@@ -314,6 +315,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			configChangeRefresh = null;
 		}
 		botClient.cancelRetries();
+		screenshotService.shutDown();
 		remoteConfigService.refresh(null);
 		pendingCompletions.clear();
 		recentTimes.clear();
@@ -514,6 +516,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	public void onScriptPreFired(ScriptPreFired event)
 	{
 		collectionLogCapture.onScriptPreFired(event);
+	}
+
+	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent event)
+	{
+		screenshotService.onScriptCallbackEvent(event);
 	}
 
 	@Subscribe

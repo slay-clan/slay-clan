@@ -15,6 +15,8 @@ public interface SlayClanConfig extends Config
 	String CLAN_TOKEN_KEY = "clanToken";
 	String BOT_URL_KEY = "botUrl";
 	String HIDE_PRIVATE_MESSAGES_KEY = "hidePrivateMessages";
+	String SHOW_GAME_CHAT_KEY = "showGameChat";
+	String HIDE_PLAYER_CHAT_KEY = "hidePlayerChat";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
@@ -63,10 +65,32 @@ public interface SlayClanConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = SHOW_GAME_CHAT_KEY,
+		name = "Show game chat in screenshots",
+		description = "Opens the chatbox on the All tab (or the Game tab while player chat is shown) for the moment of a screenshot when it is closed or on another tab, so staff can see the kill count, time or drop line. Your tab and closed chatbox come back right after",
+		position = 4
+	)
+	default boolean showGameChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = HIDE_PLAYER_CHAT_KEY,
+		name = "Hide player chat in screenshots",
+		description = "Leaves every message written by a player out of posted screenshots: public, private, friends chat, clan, guest clan and group chat, including your own. Game messages and clan broadcasts stay. The chat flickers once per screenshot",
+		position = 5
+	)
+	default boolean hidePlayerChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = HIDE_PRIVATE_MESSAGES_KEY,
 		name = "Hide private messages",
-		description = "Leaves your private messages out of posted screenshots. Needs \"Split friends private chat\" on in the game settings, otherwise they sit in the chatbox. The chat flickers once per screenshot",
-		position = 4
+		description = "Leaves the split private chat above the chatbox out of posted screenshots, with your friends' login notices. Only matters with \"Split friends private chat\" on in the game settings, private messages inside the chatbox are left out by Hide player chat in screenshots. The chat flickers once per screenshot",
+		position = 6
 	)
 	default boolean hidePrivateMessages()
 	{
