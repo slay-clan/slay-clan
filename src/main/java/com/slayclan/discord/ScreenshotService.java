@@ -49,12 +49,6 @@ public class ScreenshotService
 
 	public void capture(Consumer<byte[]> onCaptured)
 	{
-		captureFrame(frame -> onCaptured.accept(toPng(frame)));
-	}
-
-	/** Hands over the frame itself on the executor, or null when it could not be read or no frame showed the prepared chat. */
-	public void captureFrame(Consumer<BufferedImage> onCaptured)
-	{
 		int generation = generations.get();
 		// Later rather than now, since the chat scripts must not run inside the game's own script or event that asked for the screenshot
 		clientThread.invokeLater(() -> takeFrame(onCaptured, FRAME_ATTEMPTS, generation));
@@ -71,7 +65,7 @@ public class ScreenshotService
 		List.copyOf(held).forEach(heldChat -> heldChat.release(clientThread::invoke));
 	}
 
-	private void takeFrame(Consumer<BufferedImage> onCaptured, int attemptsLeft, int generation)
+	private void takeFrame(Consumer<byte[]> onCaptured, int attemptsLeft, int generation)
 	{
 		if (generation != generations.get())
 		{
@@ -90,7 +84,7 @@ public class ScreenshotService
 		return heldChat;
 	}
 
-	private void onFrame(Image image, HeldChat heldChat, Consumer<BufferedImage> onCaptured, int attemptsLeft, int generation)
+	private void onFrame(Image image, HeldChat heldChat, Consumer<byte[]> onCaptured, int attemptsLeft, int generation)
 	{
 		if (generation != generations.get())
 		{
@@ -99,7 +93,7 @@ public class ScreenshotService
 		boolean drawnWhileHeld = heldChat.release(clientThread::invokeLater);
 		if (showsTheChatAsPrepared(drawnWhileHeld, heldChat.changesTheChat))
 		{
-			executor.submit(() -> onCaptured.accept(buffered(image)));
+			executor.submit(() -> onCaptured.accept(toPng(image)));
 		}
 		else if (attemptsLeft > 1)
 		{
@@ -147,34 +141,18 @@ public class ScreenshotService
 		}
 	}
 
-	private static BufferedImage buffered(Image image)
+	private static byte[] toPng(Image image)
 	{
 		try
 		{
-			return ImageUtil.bufferedImageFromImage(image);
-		}
-		catch (RuntimeException e)
-		{
-			log.warn("Screenshot failed, posting without image", e);
-			return null;
-		}
-	}
-
-	public static byte[] toPng(BufferedImage frame)
-	{
-		if (frame == null)
-		{
-			return null;
-		}
-		try
-		{
+			BufferedImage buffered = ImageUtil.bufferedImageFromImage(image);
 			ByteArrayOutputStream out = new ByteArrayOutputStream();
-			ImageIO.write(frame, "png", out);
+			ImageIO.write(buffered, "png", out);
 			return out.toByteArray();
 		}
 		catch (IOException | RuntimeException e)
 		{
-			log.warn("Screenshot could not be encoded, posting without image", e);
+			log.warn("Screenshot failed, posting without image", e);
 			return null;
 		}
 	}

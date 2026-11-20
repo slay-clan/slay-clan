@@ -20,10 +20,6 @@ import com.slayclan.discord.ScreenshotService;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -36,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import javax.imageio.ImageIO;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.WorldType;
 import net.runelite.api.Client;
@@ -57,9 +52,11 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
@@ -115,7 +112,6 @@ public class SlayClanPluginFlowTest
 	private static final String OUTSIDER = "Stranger";
 	private static final int HORN_OF_BRAN = 32000;
 	private static final byte[] PLAIN_SCREENSHOT = {1};
-	private static final int FRAME_HEIGHT = 503;
 
 	@Mock
 	private Client client;
@@ -185,9 +181,6 @@ public class SlayClanPluginFlowTest
 		when(localPlayer.getName()).thenReturn(ME);
 		when(client.getTickCount()).thenAnswer(invocation -> tick);
 		when(client.getAccountHash()).thenReturn(1L);
-		when(client.isResized()).thenReturn(true);
-		when(client.getCanvasWidth()).thenReturn(765);
-		when(client.getCanvasHeight()).thenReturn(FRAME_HEIGHT);
 		when(client.getTopLevelWorldView()).thenReturn(worldView);
 		Map<String, String> memory = new HashMap<>();
 		when(configManager.getConfiguration(anyString(), anyString()))
@@ -216,12 +209,6 @@ public class SlayClanPluginFlowTest
 			onCaptured.accept(PLAIN_SCREENSHOT);
 			return null;
 		}).when(screenshotService).capture(any());
-		doAnswer(invocation ->
-		{
-			Consumer<BufferedImage> onCaptured = invocation.getArgument(0);
-			onCaptured.accept(new BufferedImage(765, FRAME_HEIGHT, BufferedImage.TYPE_INT_RGB));
-			return null;
-		}).when(screenshotService).captureFrame(any());
 		doAnswer(invocation ->
 		{
 			invocation.<Runnable>getArgument(0).run();
@@ -1336,7 +1323,27 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithItsProofOnTheScreenshot()
+	public void aTaskJudgedAtLoginIsPostedOnlyAfterTheWelcomeScreenIsClosed()
+	{
+		Widget welcomeScreen = mock(Widget.class);
+		when(client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE)).thenReturn(welcomeScreen);
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(30);
+		assertEquals(List.of(), postedTasks());
+
+		when(client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE)).thenReturn(null);
+		ticks(3);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	@Test
+	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithAScreenshot()
 	{
 		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
 		task.setOnce(true);
@@ -1346,32 +1353,11 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
 	}
 
 	@Test
-	public void inTheFixedSizeClientTheProofIsDrawnInsideThe3dViewLeftOfTheMinimap()
-	{
-		when(client.isResized()).thenReturn(false);
-		when(client.getViewportXOffset()).thenReturn(4);
-		when(client.getViewportYOffset()).thenReturn(4);
-		when(client.getViewportWidth()).thenReturn(512);
-		when(client.getViewportHeight()).thenReturn(334);
-		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
-		task.setOnce(true);
-		tasks(task);
-		completedCombatAchievement(398, "It Wasn't a Fluke");
-
-		login();
-		ticks(6);
-
-		BufferedImage screenshot = screenshotOfTheTaskPost();
-		assertTrue(carriesAProofBox(screenshot, 260));
-		assertTrue("nothing is drawn over the side panel", untouchedFromColumn(screenshot, 516));
-	}
-
-	@Test
-	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithItsProofOnTheScreenshot()
+	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithAScreenshot()
 	{
 		TaskDefinition task = task("serpent-sprint", "KILL:Zulrah", "1:00", 0, false);
 		task.setOnce(true);
@@ -1381,11 +1367,11 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(6);
 
-		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
 	}
 
 	@Test
-	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithItsItemsOnTheScreenshot()
+	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithAScreenshot()
 	{
 		TaskDefinition petHoarder = withItems(task("pet-hoarder", "CLOG", null, 0, false), "Vorki", "Olmlet", "Pet snakeling");
 		petHoarder.setRequired(2);
@@ -1396,14 +1382,11 @@ public class SlayClanPluginFlowTest
 		openCollectionLogWith("Olmlet", "Bandos chestplate", "Pet snakeling");
 		ticks(3);
 
-		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
-		verify(itemManager).getImage(2000);
-		verify(itemManager).getImage(2002);
-		verify(itemManager, never()).getImage(2001);
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
 	}
 
 	@Test
-	public void anEquipmentTaskIsPostedWithTheWornItemOnTheScreenshot()
+	public void anEquipmentTaskIsPostedWithAScreenshot()
 	{
 		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
 		wearing("Quest point cape");
@@ -1411,48 +1394,22 @@ public class SlayClanPluginFlowTest
 
 		ticks(6);
 
-		assertTrue(carriesAProofBox(screenshotOfTheTaskPost()));
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
 	}
 
 	@Test
-	public void severalTasksJudgedAtOnceArePostedOneAfterAnotherAsTheBotAnswers()
+	public void severalTasksJudgedAtOnceAreAllPostedWithOneScreenshot()
 	{
 		TaskDefinition cape = withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape");
 		TaskDefinition boots = withItems(task("dragon-feet", "EQUIP", null, 0, false), "Dragon boots");
 		tasks(cape, boots);
 		wearing("Quest point cape", "Dragon boots");
-		CompletableFuture<BotReply> firstAnswer = new CompletableFuture<>();
-		when(botClient.send(any(), any(), (byte[]) any())).thenAnswer(invocation ->
-			"Quest Completed".equals(invocation.<PostPayload>getArgument(1).getFields().get("Task"))
-				? firstAnswer : CompletableFuture.completedFuture(BotReply.recorded(null)));
 		login();
 
 		ticks(6);
-		assertEquals(List.of("Quest Completed"), postedTasks());
 
-		firstAnswer.complete(BotReply.recorded(null));
 		assertEquals(List.of("Quest Completed", "Dragon Feet"), postedTasks());
-	}
-
-	@Test
-	public void aTaskCompletedByAKillKeepsThePlainScreenshot()
-	{
-		tasks(task("any-raid", "RAID:*", null, 0, false));
-
-		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
-		ticks(3);
-
-		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
-	}
-
-	@Test
-	public void aCollectionLogTaskCompletedByANewItemKeepsThePlainScreenshot()
-	{
-		tasks(withItems(task("pet-owner", "CLOG", null, 0, false), "Vorki"));
-
-		chat("New item added to your collection log: <col=ff0000>Vorki</col>");
-
-		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+		verify(screenshotService, times(1)).capture(any());
 	}
 
 	@Test
@@ -1679,51 +1636,6 @@ public class SlayClanPluginFlowTest
 	private List<PostPayload> posted(String kind)
 	{
 		return posted().stream().filter(payload -> payload.getKind().equals(kind)).collect(Collectors.toList());
-	}
-
-	private static boolean carriesAProofBox(BufferedImage screenshot)
-	{
-		return carriesAProofBox(screenshot, screenshot.getWidth() / 2);
-	}
-
-	// The captured frame is plain black, so anything drawn near the top is the proof box
-	private static boolean carriesAProofBox(BufferedImage screenshot, int x)
-	{
-		for (int y = 0; y < screenshot.getHeight() / 4; y++)
-		{
-			if ((screenshot.getRGB(x, y) & 0xFFFFFF) != 0)
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static boolean untouchedFromColumn(BufferedImage screenshot, int fromX)
-	{
-		for (int x = fromX; x < screenshot.getWidth(); x++)
-		{
-			for (int y = 0; y < screenshot.getHeight(); y++)
-			{
-				if ((screenshot.getRGB(x, y) & 0xFFFFFF) != 0)
-				{
-					return false;
-				}
-			}
-		}
-		return true;
-	}
-
-	private BufferedImage screenshotOfTheTaskPost()
-	{
-		try
-		{
-			return ImageIO.read(new ByteArrayInputStream(screenshotBytesOfTheTaskPost()));
-		}
-		catch (IOException e)
-		{
-			throw new UncheckedIOException(e);
-		}
 	}
 
 	private byte[] screenshotBytesOfTheTaskPost()

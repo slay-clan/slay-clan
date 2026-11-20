@@ -43,14 +43,6 @@ public class NamesTest
 	}
 
 	@Test
-	public void anItemMatchesAListWhenAnyOfItsPatternsDoes()
-	{
-		assertTrue(Names.matchesAny(java.util.List.of("Jar of dirt", "Pharaoh's*"), "Pharaohs sceptre"));
-		assertFalse(Names.matchesAny(java.util.List.of("Jar of dirt"), "Pharaohs sceptre"));
-		assertFalse(Names.matchesAny(null, "Pharaohs sceptre"));
-	}
-
-	@Test
 	public void handlesNull()
 	{
 		assertFalse(Names.same(null, "Fire cape"));

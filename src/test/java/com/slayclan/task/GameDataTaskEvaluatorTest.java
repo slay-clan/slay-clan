@@ -21,7 +21,7 @@ public class GameDataTaskEvaluatorTest
 			once("by-id", "CA:#398"),
 			once("other", "CA:Just To Be Safe"));
 
-		List<SatisfiedTask> tasks = evaluator.fromCombatAchievements(config,
+		List<TaskDefinition> tasks = evaluator.fromCombatAchievements(config,
 			List.of(new CompletedAchievement(123, "It Wasn't a Fluke", "Master"), new CompletedAchievement(398, "Into the Den of Giants", "Easy")));
 
 		assertEquals(List.of("no-fluke", "by-id"), ids(tasks));
@@ -47,7 +47,7 @@ public class GameDataTaskEvaluatorTest
 		dash.setMaxTime("1:15");
 		RemoteConfig config = config(sprint, dash);
 
-		List<SatisfiedTask> tasks = evaluator.fromStoredBests(config,
+		List<TaskDefinition> tasks = evaluator.fromStoredBests(config,
 			List.of(new StoredPersonalBest("zulrah", 43.8, "0:43"), new StoredPersonalBest("vorkath", 80.0, "1:20")));
 
 		assertEquals(List.of("serpent-sprint"), ids(tasks));
@@ -64,7 +64,7 @@ public class GameDataTaskEvaluatorTest
 		crew.setTeamSize(3);
 		RemoteConfig config = config(lone, crew);
 
-		List<SatisfiedTask> tasks = evaluator.fromStoredBests(config, List.of(new StoredPersonalBest("chambers of xeric solo", 900.0, "15:00")));
+		List<TaskDefinition> tasks = evaluator.fromStoredBests(config, List.of(new StoredPersonalBest("chambers of xeric solo", 900.0, "15:00")));
 
 		assertEquals(List.of("lone-raider"), ids(tasks));
 	}
@@ -123,17 +123,6 @@ public class GameDataTaskEvaluatorTest
 			new StoredPersonalBest("chambers of xeric 3 players", 1200.0, "20:00")))));
 	}
 
-	@Test
-	public void aTaskJudgedFromTheGamesRecordsNamesTheAchievementOrBestTimeThatCompletedIt()
-	{
-		RemoteConfig config = config(once("by-id", "CA:#398"), once("first-zulrah", "KILL:Zulrah"));
-
-		assertEquals("Combat achievement: Into the Den of Giants",
-			evaluator.fromCombatAchievements(config, List.of(new CompletedAchievement(398, "Into the Den of Giants", "Easy"))).get(0).getProvenBy());
-		assertEquals("Personal best: zulrah 0:43",
-			evaluator.fromStoredBests(config, List.of(new StoredPersonalBest("zulrah", 43.8, "0:43"))).get(0).getProvenBy());
-	}
-
 	private static RemoteConfig config(TaskDefinition... tasks)
 	{
 		RemoteConfig config = new RemoteConfig();
@@ -157,8 +146,8 @@ public class GameDataTaskEvaluatorTest
 		return task;
 	}
 
-	private static List<String> ids(List<SatisfiedTask> tasks)
+	private static List<String> ids(List<TaskDefinition> tasks)
 	{
-		return tasks.stream().map(satisfied -> satisfied.getTask().getId()).collect(Collectors.toList());
+		return tasks.stream().map(TaskDefinition::getId).collect(Collectors.toList());
 	}
 }

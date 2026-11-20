@@ -11,7 +11,7 @@ public class GameViewWatchTest
 	private final GameViewWatch watch = new GameViewWatch(welcomeScreenOpen::get);
 
 	@Test
-	public void whileTheWelcomeScreenIsOpenThePlayerIsNotYetInView()
+	public void aPostWaitsWhileTheWelcomeScreenIsOpen()
 	{
 		watch.onLogin();
 		for (int tick = 0; tick < 20; tick++)
@@ -23,7 +23,7 @@ public class GameViewWatchTest
 	}
 
 	@Test
-	public void thePlayerIsInViewAMomentAfterTheWelcomeScreenCloses()
+	public void aPostGoesAMomentAfterTheWelcomeScreenCloses()
 	{
 		watch.onLogin();
 		watch.onTick(0);

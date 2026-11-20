@@ -1,7 +1,5 @@
 package com.slayclan.task;
 
-import java.util.Collection;
-
 /**
  * Compares task triggers and item names the way players type them: apostrophes cannot be typed in the
  * game chat, so they are ignored along with case.
@@ -34,11 +32,6 @@ public final class Names
 			return same(trimmed, name);
 		}
 		return normalize(name).startsWith(normalize(trimmed.substring(0, trimmed.length() - WILDCARD.length())));
-	}
-
-	public static boolean matchesAny(Collection<String> patterns, String name)
-	{
-		return patterns != null && patterns.stream().anyMatch(pattern -> matches(pattern, name));
 	}
 
 	public static String normalize(String name)
