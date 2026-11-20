@@ -25,6 +25,7 @@ import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.GameViewWatch;
 import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
@@ -105,9 +106,11 @@ import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
@@ -244,6 +247,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private CombatAchievementReader combatAchievementReader;
 	private CollectionLogReader collectionLogReader;
 	private CollectionLogCapture collectionLogCapture;
+	private GameViewWatch gameViewWatch;
 	private ActivityFormatter activityFormatter;
 	private ActivityReporter activityReporter;
 	private DeliveredSnapshots deliveredSnapshots;
@@ -279,6 +283,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		combatAchievementReader = new CombatAchievementReader(client);
 		collectionLogReader = new CollectionLogReader(client);
 		collectionLogCapture = new CollectionLogCapture(client, itemManager, this::canPostForClan);
+		gameViewWatch = new GameViewWatch(this::welcomeScreenOpen);
 		personalBestReader = new PersonalBestReader(configManager);
 		activityFormatter = new ActivityFormatter(gson);
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
@@ -447,6 +452,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		thresholdCheckPending = true;
 		setupWarningPending = true;
 		loginTick = client.getTickCount();
+		gameViewWatch.onLogin(loginTick);
 		mainGameWorld = MainGameWorld.sharesMainGameProgress(client.getWorldType());
 	}
 
@@ -641,7 +647,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 
 		int tick = client.getTickCount();
-		if (thresholdCheckPending && tick - loginTick >= BASELINE_DELAY_TICKS && remoteConfigService.current() != null)
+		gameViewWatch.onTick(tick);
+		if (thresholdCheckDue(tick))
 		{
 			thresholdCheckPending = false;
 			checkThresholdTasks();
@@ -667,6 +674,18 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		recentTimes.removeIf(time -> tick - time.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		recentPersonalBests.removeIf(best -> tick - best.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		reportActivity(tick);
+	}
+
+	private boolean thresholdCheckDue(int tick)
+	{
+		return thresholdCheckPending && tick - loginTick >= BASELINE_DELAY_TICKS && gameViewWatch.shown(tick)
+			&& remoteConfigService.current() != null;
+	}
+
+	private boolean welcomeScreenOpen()
+	{
+		Widget welcomeScreen = client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE);
+		return welcomeScreen != null && !welcomeScreen.isHidden();
 	}
 
 	@Value
@@ -721,7 +740,10 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				caJudgementPending = true;
 			});
 		}
-		judgeFromGameDataOnceAllowed();
+		if (gameViewWatch.shown(tick))
+		{
+			judgeFromGameDataOnceAllowed();
+		}
 		if (statusCheckPending)
 		{
 			statusCheckPending = false;
