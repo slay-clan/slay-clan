@@ -48,7 +48,7 @@ Report it in the clan's bug report channel. Not in Slay Clan? Open an issue on [
 - **Raid or boss**: team size, mode and who was there
 - **Log**: the `SlayClan` lines from `%USERPROFILE%\.runelite\logs\client.log` around that time
 
-The log says why a task was skipped. Submit the task by hand in the meantime.
+The log says why a task was skipped, and a drop worth at least the clan's minimum that was not posted leaves a line naming the item, its value and the reason, such as a stackable item. Submit the task by hand in the meantime.
 
 If the bot cannot be reached, the post is kept and sent again later with its screenshot, which waits in the plugin's folder under `.runelite/plugin-data` until the bot has answered and is then deleted. Posts older than a week are dropped together with their screenshots, and the plugin tells you at login so you can submit them by hand.
 
