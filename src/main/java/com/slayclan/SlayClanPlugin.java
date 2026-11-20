@@ -16,6 +16,7 @@ import com.slayclan.activity.ScaleBestStore;
 import com.slayclan.activity.StoredPersonalBest;
 import com.slayclan.activity.ToaTotalBestStore;
 import com.slayclan.clan.ClanMembershipChecker;
+import com.slayclan.clan.ClanTeam;
 import com.slayclan.clan.MainGameWorld;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
@@ -136,6 +137,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static final int SETUP_WARNING_DELAY_TICKS = 15;
 	// Loot Tracker reports opened PvP loot keys under this name
 	private static final String PVP_LOOT_CHEST = "Loot Chest";
+	// Loot Tracker names a raid's reward chest after the raid, the same in every mode
+	private static final Set<String> RAID_CHEST_SOURCES = Set.of("Chambers of Xeric", "Theatre of Blood", "Tombs of Amascut", "Fractured Archive");
 	// The team size line is printed a moment before the completion count
 	private static final int TEAM_SIZE_MAX_AGE_TICKS = 5;
 	// Kill count, time and team size lines can arrive in any order across neighbouring ticks
@@ -214,6 +217,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final List<TickedTime> recentTimes = new ArrayList<>();
 	private int lastRaidTeamSize;
 	private int lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
+	private int coxTeamSizeUntilLeft;
 	private final KillCountDetector killCountDetector = new KillCountDetector();
 	private final TaskMatcher taskMatcher = new TaskMatcher();
 	private final GameDataTaskEvaluator gameDataTaskEvaluator = new GameDataTaskEvaluator(taskMatcher, timedTaskFilter);
@@ -314,6 +318,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		caJudgementPending = false;
 		pbJudgementPending = false;
 		lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
+		coxTeamSizeUntilLeft = 0;
 		statusCheckPending = false;
 		caSnapshotPending = false;
 		pbSnapshotPending = false;
@@ -474,6 +479,15 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			thresholdCheckPending = true;
 		}
+		if (leftChambersOfXeric(event))
+		{
+			coxTeamSizeUntilLeft = 0;
+		}
+	}
+
+	private static boolean leftChambersOfXeric(VarbitChanged event)
+	{
+		return event.getVarbitId() == VarbitID.RAIDS_CLIENT_INDUNGEON && event.getValue() == 0;
 	}
 
 	private static boolean changesProgressStatus(VarbitChanged event)
@@ -539,6 +553,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		});
 		Optional<String> raidTrigger = raidCompletionDetector.detect(message).filter(this::notSwitchedOff);
 		raidTrigger.ifPresent(trigger -> queueCompletion(trigger, killCount));
+		raidTrigger.filter(this::knowsCoxTeamSize).ifPresent(trigger -> coxTeamSizeUntilLeft = lastRaidTeamSize);
 		Optional<String> clogItem = collectionLogDetector.detect(message);
 		clogItem.ifPresent(this::handleCollectionLog);
 		clogItem.ifPresent(this::reportCollectionLogItem);
@@ -643,6 +658,13 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		String trigger;
 		int tick;
 		int killCount;
+	}
+
+	@Value
+	private static class LootMatch
+	{
+		TaskDefinition task;
+		String itemName;
 	}
 
 	@Value
@@ -942,17 +964,13 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 		String boss = bossName(trigger);
-		if (teamCannotBeToldFromBystanders(trigger))
+		Optional<List<String>> team = readTeam(trigger);
+		if (team.isEmpty())
 		{
-			log.debug("Personal best at {} not posted: not in an instance, so bystanders cannot be told from the team", boss);
+			log.debug("Personal best at {} not posted: the team cannot be told", boss);
 			return;
 		}
-		List<String> party = soloByTheGamesCount() ? List.of(account()) : participantReader.read(trigger);
-		if (partyOnlyPartlyRead(trigger, party))
-		{
-			log.debug("Personal best at {} not posted: team size {} but only {} found, cannot verify the clan check", boss, gamesTeamSize(trigger), party);
-			return;
-		}
+		List<String> party = team.get();
 		if (!membershipChecker.allMembers(client.getClanSettings(), remoteConfig.getClanName(), party))
 		{
 			log.debug("Personal best at {} not posted: only clan teams count, party was {}", boss, party);
@@ -1011,6 +1029,28 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		screenshotService.capture(png -> activityReporter.send(target, payload, png));
 	}
 
+	/** The whole team behind a kill or a loot, outsiders included, or empty when it cannot be told. */
+	private Optional<List<String>> readTeam(String trigger)
+	{
+		if (teamCannotBeToldFromBystanders(trigger))
+		{
+			log.debug("Team at {} unknown: not in an instance, so bystanders cannot be told from the team", bossName(trigger));
+			return Optional.empty();
+		}
+		List<String> party = soloByTheGamesCount() ? List.of(account()) : participantReader.read(trigger);
+		if (teamNotFullyRead(trigger, party))
+		{
+			log.debug("Team at {} unknown: team size {} but only {} found, cannot verify the clan check", bossName(trigger), gamesTeamSize(trigger), party);
+			return Optional.empty();
+		}
+		return Optional.of(party);
+	}
+
+	private boolean teamNotFullyRead(String trigger, List<String> party)
+	{
+		return party.isEmpty() || partyOnlyPartlyRead(trigger, party);
+	}
+
 	/**
 	 * Raids read their party list. Other bosses only count inside an instance, where everyone present fought; on an
 	 * open world nobody can tell the team from bystanders, so those kills are submitted by hand (decided with the
@@ -1067,10 +1107,17 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return party.size() < gamesTeamSize(trigger);
 	}
 
-	/** The team size the game itself states, from the chat line or the party slots, or 0 when it states none. */
+	/**
+	 * The team size the game itself states, from the chat line or the party slots, or 0 when it states none. Chambers
+	 * of Xeric states it only in its completion message, so it is kept for the reward chest until the raid is left.
+	 */
 	private int gamesTeamSize(String trigger)
 	{
-		return knowsCoxTeamSize(trigger) ? lastRaidTeamSize : participantReader.gamesTeamSize(trigger);
+		if (isChambersOfXeric(trigger))
+		{
+			return knowsTeamSizeFromChat() ? lastRaidTeamSize : coxTeamSizeUntilLeft;
+		}
+		return participantReader.gamesTeamSize(trigger);
 	}
 
 	private static String bossName(String trigger)
@@ -1405,16 +1452,44 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 
 		List<PricedItem> pricedItems = items.stream().map(this::price).collect(Collectors.toList());
+		List<ValuableDrop> drops = dropTasks.stream()
+			.flatMap(task -> dropEvaluator.evaluate(pricedItems, task).stream())
+			.collect(Collectors.toList());
+		List<LootMatch> lootMatches = lootMatches(lootTasks, source, pricedItems);
+		Optional<ClanTeam> team = teamMatters(drops, lootMatches) ? clanTeamAt(source, remoteConfig) : Optional.empty();
 		Instant completedAt = Instant.now();
 		String account = account();
 		List<PostPayload> posts = new ArrayList<>();
-		for (TaskDefinition task : dropTasks)
+		for (ValuableDrop drop : drops)
 		{
-			for (ValuableDrop drop : dropEvaluator.evaluate(pricedItems, task))
+			posts.add(team
+				.map(clanTeam -> messageFormatter.buildDrop(account, drop, source, clanTeam, completedAt))
+				.orElseGet(() -> messageFormatter.buildDrop(account, drop, source, completedAt)));
+		}
+		for (LootMatch match : lootMatches)
+		{
+			TaskDefinition task = match.getTask();
+			if (lacksTheClanTeamItNeeds(task, team))
 			{
-				posts.add(messageFormatter.buildDrop(account, drop, source, completedAt));
+				log.debug("Not posted {} from {}: only an all-clan team counts, and this team was not one or could not be read", task.getName(), source);
+				continue;
+			}
+			posts.add(messageFormatter.buildItemTask(account, task, match.getItemName(), source, clanPartyFor(task, team), completedAt));
+			if (task.isOnce())
+			{
+				markCompleted(task);
 			}
 		}
+		if (!posts.isEmpty())
+		{
+			postWithScreenshot(botTarget(), posts);
+		}
+	}
+
+	// A one-time task is completed by its first matching item, a repeatable task by every one
+	private List<LootMatch> lootMatches(List<TaskDefinition> lootTasks, String source, List<PricedItem> pricedItems)
+	{
+		List<LootMatch> matches = new ArrayList<>();
 		for (TaskDefinition task : lootTasks)
 		{
 			for (PricedItem item : pricedItems)
@@ -1423,18 +1498,44 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				{
 					continue;
 				}
-				posts.add(messageFormatter.buildItemTask(account, task, item.getName(), source, completedAt));
+				matches.add(new LootMatch(task, item.getName()));
 				if (task.isOnce())
 				{
-					markCompleted(task);
 					break;
 				}
 			}
 		}
-		if (!posts.isEmpty())
-		{
-			postWithScreenshot(botTarget(), posts);
-		}
+		return matches;
+	}
+
+	private static boolean teamMatters(List<ValuableDrop> drops, List<LootMatch> lootMatches)
+	{
+		return !drops.isEmpty() || lootMatches.stream().anyMatch(match -> match.getTask().isClanOnly());
+	}
+
+	private Optional<ClanTeam> clanTeamAt(String source, RemoteConfig remoteConfig)
+	{
+		return readTeam(lootTrigger(source))
+			.map(team -> membershipChecker.team(client.getClanSettings(), remoteConfig.getClanName(), team));
+	}
+
+	/**
+	 * A raid chest is judged by the raid's party, any other source like a boss kill: the players in the instance,
+	 * or nobody on an open world, where bystanders cannot be told from the team.
+	 */
+	private static String lootTrigger(String source)
+	{
+		return RAID_CHEST_SOURCES.contains(source) ? Triggers.raid(source) : Triggers.kill(source);
+	}
+
+	private static boolean lacksTheClanTeamItNeeds(TaskDefinition task, Optional<ClanTeam> team)
+	{
+		return task.isClanOnly() && !team.map(ClanTeam::isWholeTeamInClan).orElse(false);
+	}
+
+	private static List<String> clanPartyFor(TaskDefinition task, Optional<ClanTeam> team)
+	{
+		return team.filter(clanTeam -> task.isClanOnly()).map(ClanTeam::getClanMembers).orElse(List.of());
 	}
 
 	private PricedItem price(ItemStack item)

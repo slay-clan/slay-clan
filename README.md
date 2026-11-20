@@ -22,7 +22,7 @@ Points go to your main when you play on an alt. Tasks and points are managed by 
 - **One-time tasks** (Social, PvM, Speed-chaser, Clogging) the first time you complete them.
 - **Repeatable tasks** every time.
 - **Group tasks** only when everyone in the party is in the clan. Each player with the plugin posts their own, and the post names the clan members in the team.
-- **Valuable drops** with the item and its value. The bot asks you in its approval channel who you split with, or press On my own. Only you can answer.
+- **Valuable drops** with the item and its value, and from a raid or an instanced boss also the clan members in the team and whether the whole team was in the clan. The bot asks you in its approval channel who you split with, or press On my own. Only you can answer.
 - **Personal bests** with a screenshot, plus your fastest kill per team size, since the game keeps one personal best per boss. The plugin does not post a time the game only remembers from before. The bot decides what makes the board. When the clan starts a PB season, the fastest-kill memory starts over with it.
 - **Activity**: new collection log items and combat achievements, your overall progress and your stored personal bests, including your Tombs of Amascut total records, for the members hub. These give no points on their own.
 
