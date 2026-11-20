@@ -557,7 +557,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			|| clogItem.isPresent() || achievement.isPresent() || personalTrigger.isPresent();
 		if (!recognized && looksTaskRelated(message))
 		{
-			log.info("Unrecognized game message that may belong to a clan task: {}", Text.removeTags(message));
+			log.debug("Unrecognized game message that may belong to a clan task: {}", Text.removeTags(message));
 		}
 	}
 
@@ -1444,8 +1444,14 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return new PricedItem(
 			itemManager.getItemComposition(itemId).getName(),
 			item.getQuantity(),
-			itemManager.getItemPrice(itemId),
+			geGuidePrice(itemId),
 			dropped.isStackable());
+	}
+
+	// Matches the in-game drop broadcast, whatever price source the member set in RuneLite
+	private long geGuidePrice(int itemId)
+	{
+		return itemManager.getItemPriceWithSource(itemId, false);
 	}
 
 	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
