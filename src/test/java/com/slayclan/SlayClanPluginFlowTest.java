@@ -9,12 +9,17 @@ import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -26,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.WorldType;
 import net.runelite.api.Client;
@@ -56,6 +62,7 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.http.api.item.ItemPrice;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -69,6 +76,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -96,6 +104,8 @@ public class SlayClanPluginFlowTest
 	private static final BotTarget TARGET = new BotTarget(API, TOKEN);
 	private static final String ME = "Clanmate";
 	private static final String OUTSIDER = "Stranger";
+	private static final byte[] PLAIN_SCREENSHOT = {1};
+	private static final int FRAME_HEIGHT = 503;
 
 	@Mock
 	private Client client;
@@ -117,6 +127,8 @@ public class SlayClanPluginFlowTest
 	private TaskProgressStore progressStore;
 	@Mock
 	private PendingPostStore pendingPostStore;
+	@Mock
+	private KeptScreenshots keptScreenshots;
 	@Mock
 	private PluginManager pluginManager;
 	@Mock
@@ -185,9 +197,20 @@ public class SlayClanPluginFlowTest
 		doAnswer(invocation ->
 		{
 			Consumer<byte[]> onCaptured = invocation.getArgument(0);
-			onCaptured.accept(new byte[]{1});
+			onCaptured.accept(PLAIN_SCREENSHOT);
 			return null;
 		}).when(screenshotService).capture(any());
+		doAnswer(invocation ->
+		{
+			Consumer<BufferedImage> onCaptured = invocation.getArgument(0);
+			onCaptured.accept(new BufferedImage(765, FRAME_HEIGHT, BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).captureFrame(any());
+		doAnswer(invocation ->
+		{
+			invocation.<Runnable>getArgument(0).run();
+			return null;
+		}).when(executor).execute(any(Runnable.class));
 		when(progressStore.isCompleted(anyString())).thenAnswer(invocation -> completed.contains(invocation.<String>getArgument(0)));
 		doAnswer(invocation -> completed.add(invocation.getArgument(0))).when(progressStore).markCompleted(anyString());
 		doAnswer(invocation -> completed.remove(invocation.<String>getArgument(0))).when(progressStore).clearCompleted(anyString());
@@ -351,7 +374,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		verify(pendingPostStore).add(any(), any());
+		verify(pendingPostStore).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -1103,7 +1126,7 @@ public class SlayClanPluginFlowTest
 
 		verify(client, times(1)).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Token not accepted."), isNull());
-		verify(pendingPostStore).add(any(), any());
+		verify(pendingPostStore).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -1118,7 +1141,7 @@ public class SlayClanPluginFlowTest
 
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Slay Clan: Not recorded: already completed."), isNull());
-		verify(pendingPostStore, never()).add(any(), any());
+		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -1190,6 +1213,117 @@ public class SlayClanPluginFlowTest
 		ticks(6);
 
 		assertEquals(List.of("Serpent Sprint"), postedTasks());
+	}
+
+	@Test
+	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithItsProofUnderTheScreenshot()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(6);
+
+		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+	}
+
+	@Test
+	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithItsProofUnderTheScreenshot()
+	{
+		TaskDefinition task = task("serpent-sprint", "KILL:Zulrah", "1:00", 0, false);
+		task.setOnce(true);
+		tasks(task);
+		storedPersonalBest("zulrah", 43.8);
+
+		login();
+		ticks(6);
+
+		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+	}
+
+	@Test
+	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithItsItemsUnderTheScreenshot()
+	{
+		TaskDefinition petHoarder = withItems(task("pet-hoarder", "CLOG", null, 0, false), "Vorki", "Olmlet", "Pet snakeling");
+		petHoarder.setRequired(2);
+		petHoarder.setOnce(true);
+		tasks(petHoarder);
+		login();
+
+		openCollectionLogWith("Olmlet", "Bandos chestplate", "Pet snakeling");
+		ticks(3);
+
+		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+		verify(itemManager).getImage(2000);
+		verify(itemManager).getImage(2002);
+		verify(itemManager, never()).getImage(2001);
+	}
+
+	@Test
+	public void anEquipmentTaskIsPostedWithTheWornItemUnderTheScreenshot()
+	{
+		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
+		wearing("Quest point cape");
+		login();
+
+		ticks(6);
+
+		assertTrue(screenshotOfTheTaskPost().getHeight() > FRAME_HEIGHT);
+	}
+
+	@Test
+	public void severalTasksJudgedAtOnceArePostedOneAfterAnotherAsTheBotAnswers()
+	{
+		TaskDefinition cape = withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape");
+		TaskDefinition boots = withItems(task("dragon-feet", "EQUIP", null, 0, false), "Dragon boots");
+		tasks(cape, boots);
+		wearing("Quest point cape", "Dragon boots");
+		CompletableFuture<BotReply> firstAnswer = new CompletableFuture<>();
+		when(botClient.send(any(), any(), (byte[]) any())).thenAnswer(invocation ->
+			"Quest Completed".equals(invocation.<PostPayload>getArgument(1).getFields().get("Task"))
+				? firstAnswer : CompletableFuture.completedFuture(BotReply.recorded(null)));
+		login();
+
+		ticks(6);
+		assertEquals(List.of("Quest Completed"), postedTasks());
+
+		firstAnswer.complete(BotReply.recorded(null));
+		assertEquals(List.of("Quest Completed", "Dragon Feet"), postedTasks());
+	}
+
+	@Test
+	public void aTaskCompletedByAKillKeepsThePlainScreenshot()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void aCollectionLogTaskCompletedByANewItemKeepsThePlainScreenshot()
+	{
+		tasks(withItems(task("pet-owner", "CLOG", null, 0, false), "Vorki"));
+
+		chat("New item added to your collection log: <col=ff0000>Vorki</col>");
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void anUndeliveredTaskPostIsKeptTogetherWithItsScreenshot()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(pendingPostStore).add(any(), any(), eq(true));
 	}
 
 	@Test
@@ -1384,6 +1518,33 @@ public class SlayClanPluginFlowTest
 	private List<PostPayload> posted(String kind)
 	{
 		return posted().stream().filter(payload -> payload.getKind().equals(kind)).collect(Collectors.toList());
+	}
+
+	private BufferedImage screenshotOfTheTaskPost()
+	{
+		try
+		{
+			return ImageIO.read(new ByteArrayInputStream(screenshotBytesOfTheTaskPost()));
+		}
+		catch (IOException e)
+		{
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private byte[] screenshotBytesOfTheTaskPost()
+	{
+		ArgumentCaptor<PostPayload> payloads = ArgumentCaptor.forClass(PostPayload.class);
+		ArgumentCaptor<byte[]> screenshots = ArgumentCaptor.forClass(byte[].class);
+		verify(botClient, atLeast(1)).send(eq(TARGET), payloads.capture(), screenshots.capture());
+		for (int i = 0; i < payloads.getAllValues().size(); i++)
+		{
+			if (payloads.getAllValues().get(i).getKind().equals("task"))
+			{
+				return screenshots.getAllValues().get(i);
+			}
+		}
+		throw new AssertionError("no task was posted");
 	}
 
 	private List<PostPayload> posted()

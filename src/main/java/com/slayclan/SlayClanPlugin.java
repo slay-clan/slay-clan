@@ -23,9 +23,11 @@ import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostPayload;
+import com.slayclan.discord.ProofStrip;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
 import com.slayclan.drop.PricedItem;
@@ -36,7 +38,8 @@ import com.slayclan.task.ClogTaskEvaluator;
 import com.slayclan.task.GameDataTaskEvaluator;
 import com.slayclan.task.LootTaskEvaluator;
 import com.slayclan.task.Names;
-import com.slayclan.task.ThresholdTaskEvaluator;
+import com.slayclan.task.SatisfiedTask;
+import com.slayclan.task.TaskProofs;
 import com.slayclan.task.TimedTaskFilter;
 import com.slayclan.trigger.CollectionLogDetector;
 import com.slayclan.trigger.CombatAchievement;
@@ -60,10 +63,10 @@ import com.google.inject.Provides;
 import java.awt.Color;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,17 +78,17 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
-import net.runelite.api.Skill;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
@@ -120,6 +123,7 @@ import net.runelite.client.util.Text;
 @PluginDescriptor(
 	name = "Slay Clan",
 	description = "Posts completed Slay Clan tasks to the clan Discord",
+	internalName = "slay-clan",
 	tags = {"clan", "discord", "raids", "cox"}
 )
 public class SlayClanPlugin extends Plugin implements BotAnswers
@@ -150,6 +154,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static final Set<String> POSTING_KEYS = Set.of(
 		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY, SlayClanConfig.BOT_URL_KEY);
 	private static final String RETIRED_DISCORD_NAME_KEY = "discordName";
+	private static final String KEPT_SCREENSHOT_FOLDER = "pending-screenshots";
 
 	@Inject
 	private Client client;
@@ -185,6 +190,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private PendingPostStore pendingPostStore;
 
 	@Inject
+	private KeptScreenshots keptScreenshots;
+
+	@Inject
 	private Gson gson;
 
 	@Inject
@@ -198,7 +206,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final DurationDetector durationDetector = new DurationDetector();
 	private final DelveDetector delveDetector = new DelveDetector();
 	private final TimedTaskFilter timedTaskFilter = new TimedTaskFilter();
-	private final ThresholdTaskEvaluator thresholdTaskEvaluator = new ThresholdTaskEvaluator();
 	private static final String GAME_DATA_COMBAT_ACHIEVEMENTS = "ca";
 	private static final String GAME_DATA_PERSONAL_BESTS = "pb";
 	private final ContractTracker contractTracker = new ContractTracker();
@@ -211,6 +218,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final GameDataTaskEvaluator gameDataTaskEvaluator = new GameDataTaskEvaluator(taskMatcher, timedTaskFilter);
 	private final ClanMembershipChecker membershipChecker = new ClanMembershipChecker();
 	private final MessageFormatter messageFormatter = new MessageFormatter();
+	private final ProofStrip proofStrip = new ProofStrip();
 	private final DropEvaluator dropEvaluator = new DropEvaluator();
 	private final CollectionLogDetector collectionLogDetector = new CollectionLogDetector();
 	private final ClogTaskEvaluator clogTaskEvaluator = new ClogTaskEvaluator();
@@ -233,6 +241,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private DeliveredSnapshots deliveredSnapshots;
 	private ScaleBestStore scaleBestStore;
 	private ItemNameIndex itemNameIndex;
+	private TaskProofs taskProofs;
 	private boolean statusCheckPending;
 	private boolean caSnapshotPending;
 	private boolean pbSnapshotPending;
@@ -264,7 +273,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
-		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this);
+		taskProofs = new TaskProofs(client, itemManager);
+		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, keptScreenshots, deliveredSnapshots, this, executor);
+		executor.execute(() -> keptScreenshots.prune(Instant.now()));
 		forgetTheRetiredDiscordNameSetting();
 		refreshTask = executor.scheduleAtFixedRate(
 			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), 0, CONFIG_REFRESH_MINUTES, TimeUnit.MINUTES);
@@ -433,7 +444,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		if (event.getContainerId() == InventoryID.INV)
 		{
 			thresholdCheckPending = true;
-			contractTracker.onInventory(itemNames(event.getItemContainer()), client.getTickCount());
+			contractTracker.onInventory(taskProofs.itemNames(event.getItemContainer()), client.getTickCount());
 		}
 	}
 
@@ -714,6 +725,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		List<String> owned = ownedItems.stream().map(OwnedItem::getName).collect(Collectors.toList());
 		List<TaskDefinition> completed = new ArrayList<>();
 		Map<String, String> singleItems = new HashMap<>();
+		Map<String, ProofStrip.Proof> proofByTaskId = new HashMap<>();
 		for (TaskDefinition task : taskMatcher.byTrigger(remoteConfig, Triggers.CLOG))
 		{
 			if (!awaitsWholeLogJudgement(task))
@@ -725,6 +737,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			if (clogTaskEvaluator.isComplete(task, progress))
 			{
 				completed.add(task);
+				proofByTaskId.put(task.getId(), taskProofs.listedItems(task, ownedItems));
 				if (progress.size() == 1)
 				{
 					singleItems.put(task.getId(), progress.iterator().next());
@@ -734,7 +747,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 		if (!completed.isEmpty())
 		{
-			postClogTasks(completed, singleItems);
+			postClogTasks(completed, singleItems, proofByTaskId);
 		}
 	}
 
@@ -746,7 +759,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	/**
 	 * A task completed by a single item names that item, like a task completed by a new item in chat does.
 	 */
-	private void postClogTasks(List<TaskDefinition> tasks, Map<String, String> singleItems)
+	private void postClogTasks(List<TaskDefinition> tasks, Map<String, String> singleItems,
+		Map<String, ProofStrip.Proof> proofByTaskId)
 	{
 		Instant completedAt = Instant.now();
 		String account = account();
@@ -764,7 +778,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 			}
 		}
-		postWithScreenshot(botTarget(), posts);
+		postWithProof(botTarget(), posts, proofByTaskId);
 	}
 
 	private void reportStoredPersonalBests()
@@ -810,18 +824,21 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	 * marked done earlier counts again, since that mark may come from a post the bot refused; a task the member
 	 * already holds is refused once more and that leaves it done.
 	 */
-	private void judgeFromGameData(String source, List<TaskDefinition> satisfied)
+	private void judgeFromGameData(String source, List<SatisfiedTask> satisfied)
 	{
 		long accountHash = client.getAccountHash();
 		boolean firstJudgement = !progressStore.isJudgedFromGameData(source, accountHash);
-		List<TaskDefinition> toPost = satisfied.stream()
-			.filter(task -> worthPostingFromGameData(task.getId(), firstJudgement))
+		List<SatisfiedTask> toPost = satisfied.stream()
+			.filter(found -> worthPostingFromGameData(found.getTask().getId(), firstJudgement))
 			.collect(Collectors.toList());
 		progressStore.markJudgedFromGameData(source, accountHash);
 		if (!toPost.isEmpty())
 		{
 			log.info("Posting {} tasks the game's {} records already satisfy", toPost.size(), source);
-			postTasks(toPost);
+			postTasksWithProof(
+				toPost.stream().map(SatisfiedTask::getTask).collect(Collectors.toList()),
+				toPost.stream().collect(Collectors.toMap(
+					found -> found.getTask().getId(), found -> ProofStrip.Proof.text(found.getProvenBy()))));
 		}
 	}
 
@@ -1172,73 +1189,15 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 
-		Set<String> worn = itemNames(client.getItemContainer(InventoryID.WORN));
-		Set<String> held = new HashSet<>(worn);
-		held.addAll(itemNames(client.getItemContainer(InventoryID.INV)));
-		int clogCount = client.getVarpValue(VarPlayerID.COLLECTION_COUNT);
-		log.debug("Threshold check: {} collection log slots", clogCount);
-		List<TaskDefinition> reached = new ArrayList<>();
-		for (TaskDefinition task : remoteConfig.getTasks())
-		{
-			Optional<Boolean> satisfied = thresholdSatisfied(task, worn, held, clogCount);
-			if (satisfied.isEmpty() || !stillOpen(task.getId()))
-			{
-				continue;
-			}
-			if (satisfied.get())
-			{
-				markCompleted(task);
-				reached.add(task);
-			}
-		}
+		Map<String, ProofStrip.Proof> proofByTaskId = taskProofs.thresholdsReached(remoteConfig.getTasks(), task -> stillOpen(task.getId()));
+		List<TaskDefinition> reached = remoteConfig.getTasks().stream()
+			.filter(task -> proofByTaskId.containsKey(task.getId()))
+			.collect(Collectors.toList());
+		reached.forEach(this::markCompleted);
 		if (!reached.isEmpty())
 		{
-			postTasks(reached);
+			postTasksWithProof(reached, proofByTaskId);
 		}
-	}
-
-	private Optional<Boolean> thresholdSatisfied(TaskDefinition task, Set<String> worn, Set<String> held, int clogCount)
-	{
-		String trigger = task.getTrigger();
-		if (trigger == null)
-		{
-			return Optional.empty();
-		}
-		if (Names.same(trigger, Triggers.EQUIP))
-		{
-			return Optional.of(thresholdTaskEvaluator.isEquipped(task, worn));
-		}
-		if (Names.same(trigger, Triggers.CLOG_COUNT))
-		{
-			return clogCount > 0 ? Optional.of(thresholdTaskEvaluator.hasCount(task, clogCount)) : Optional.empty();
-		}
-		if (Names.same(trigger, Triggers.HOLD))
-		{
-			return Optional.of(thresholdTaskEvaluator.isEquipped(task, held));
-		}
-		if (trigger.toUpperCase().startsWith(Triggers.XP_PREFIX))
-		{
-			String skillName = trigger.substring(Triggers.XP_PREFIX.length());
-			return Arrays.stream(Skill.values())
-				.filter(skill -> Names.same(skill.getName(), skillName))
-				.findFirst()
-				.map(client::getSkillExperience)
-				.filter(experience -> experience > 0)
-				.map(experience -> thresholdTaskEvaluator.hasExperience(task, experience));
-		}
-		return Optional.empty();
-	}
-
-	private Set<String> itemNames(ItemContainer container)
-	{
-		if (container == null)
-		{
-			return Set.of();
-		}
-		return Arrays.stream(container.getItems())
-			.filter(item -> item.getId() > 0)
-			.map(item -> itemManager.getItemComposition(item.getId()).getName())
-			.collect(Collectors.toSet());
 	}
 
 	private void handleDelve(int level)
@@ -1345,6 +1304,16 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	private void postTasks(List<TaskDefinition> tasks, List<String> party)
 	{
+		postWithScreenshot(botTarget(), taskPosts(tasks, party));
+	}
+
+	private void postTasksWithProof(List<TaskDefinition> tasks, Map<String, ProofStrip.Proof> proofByTaskId)
+	{
+		postWithProof(botTarget(), taskPosts(tasks, List.of()), proofByTaskId);
+	}
+
+	private List<PostPayload> taskPosts(List<TaskDefinition> tasks, List<String> party)
+	{
 		Instant completedAt = Instant.now();
 		String account = account();
 		List<PostPayload> posts = new ArrayList<>();
@@ -1356,7 +1325,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			}
 			posts.add(messageFormatter.build(account, task, party, completedAt));
 		}
-		postWithScreenshot(botTarget(), posts);
+		return posts;
 	}
 
 	private void markCompleted(TaskDefinition task)
@@ -1483,6 +1452,26 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	{
 		Account account = playingAccount();
 		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, account.stamp(payload), png)));
+	}
+
+	/**
+	 * For tasks judged on the game's own records: the frame shows whatever the member has open, so each post gets
+	 * what completed its task drawn under it. A post made from something that just happened keeps the plain frame.
+	 */
+	private void postWithProof(BotTarget target, List<PostPayload> posts, Map<String, ProofStrip.Proof> proofByTaskId)
+	{
+		Account account = playingAccount();
+		screenshotService.captureFrame(frame -> sendInTurn(posts.iterator(), payload -> activityReporter.send(target, account.stamp(payload),
+			ScreenshotService.toPng(proofStrip.addTo(frame, proofByTaskId.get(payload.getTaskId()))))));
+	}
+
+	// Each post has its own full-size image, so the next one is only drawn once the bot has answered the one before
+	private void sendInTurn(Iterator<PostPayload> posts, Function<PostPayload, CompletableFuture<Void>> send)
+	{
+		if (posts.hasNext())
+		{
+			send.apply(posts.next()).whenCompleteAsync((sent, error) -> sendInTurn(posts, send), executor);
+		}
 	}
 
 	/**
@@ -1662,5 +1651,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	SlayClanConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(SlayClanConfig.class);
+	}
+
+	@Provides
+	@Singleton
+	KeptScreenshots provideKeptScreenshots()
+	{
+		return new KeptScreenshots(() -> getPluginDirectory().joinSegment(KEPT_SCREENSHOT_FOLDER));
 	}
 }

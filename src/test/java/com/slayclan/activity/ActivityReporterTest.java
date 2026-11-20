@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
@@ -13,11 +14,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import net.runelite.client.util.Filepath;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -32,6 +38,10 @@ public class ActivityReporterTest
 {
 	private static final BotTarget TARGET = new BotTarget("https://bot.example/api/v1/posts", "sc_test");
 	private static final long ACCOUNT = 42L;
+	private static final byte[] SCREENSHOT = {1, 2, 3};
+
+	@Rule
+	public TemporaryFolder screenshotFolder = new TemporaryFolder();
 
 	private BotClient botClient;
 	private PendingPostStore pendingPostStore;
@@ -47,7 +57,8 @@ public class ActivityReporterTest
 		pendingPostStore = mock(PendingPostStore.class);
 		deliveredSnapshots = mock(DeliveredSnapshots.class);
 		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
-		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, new BotAnswers()
+		KeptScreenshots keptScreenshots = new KeptScreenshots(() -> Filepath.Unchecked.getRooted(screenshotFolder.getRoot().toPath()));
+		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, keptScreenshots, deliveredSnapshots, new BotAnswers()
 		{
 			@Override
 			public void tell(BotReply reply)
@@ -60,7 +71,7 @@ public class ActivityReporterTest
 			{
 				answered.put(taskId, reply);
 			}
-		});
+		}, Runnable::run);
 	}
 
 	@Test
@@ -165,7 +176,7 @@ public class ActivityReporterTest
 		reporter.reportCa(TARGET, new Account("Clanmate", 42L), "Into the Den of Giants", 398, "Easy");
 
 		ArgumentCaptor<PostPayload> kept = ArgumentCaptor.forClass(PostPayload.class);
-		verify(pendingPostStore).add(kept.capture(), any());
+		verify(pendingPostStore).add(kept.capture(), any(), anyBoolean());
 		assertEquals("ca", kept.getValue().getKind());
 		assertEquals("42", kept.getValue().getAccountHash());
 	}
@@ -179,7 +190,7 @@ public class ActivityReporterTest
 
 		reporter.send(TARGET, payload, null);
 
-		verify(pendingPostStore).add(eq(payload), any());
+		verify(pendingPostStore).add(eq(payload), any(), anyBoolean());
 	}
 
 	@Test
@@ -193,7 +204,7 @@ public class ActivityReporterTest
 		reporter.send(TARGET, payload, null);
 
 		assertEquals("Not recorded: slower than your time on the board.", told.get(0).getMessage());
-		verify(pendingPostStore, never()).add(any(), any());
+		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -240,7 +251,7 @@ public class ActivityReporterTest
 
 		verify(botClient).send(eq(TARGET), any(), isNull());
 		verify(deliveredSnapshots).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), anyString());
-		verify(pendingPostStore, never()).add(any(), any());
+		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -296,7 +307,124 @@ public class ActivityReporterTest
 
 		reporter.reportCaSnapshot(TARGET, "Clanmate", ACCOUNT, List.of(new CompletedAchievement(398, "Into the Den of Giants", "Easy")));
 
-		verify(pendingPostStore, never()).add(any(), any());
+		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
 		verify(deliveredSnapshots, never()).markDelivered(any(), anyLong(), anyString());
+	}
+
+	@Test
+	public void aPostTheBotCouldNotTakeKeepsItsScreenshotOnDisk()
+	{
+		PostPayload payload = payload("Cave Runner");
+
+		keepWithScreenshot(payload);
+
+		verify(pendingPostStore).add(eq(payload), any(), eq(true));
+		assertEquals(List.of("0123456789abcdef.png"), keptFiles());
+	}
+
+	@Test
+	public void aPostWithoutAScreenshotKeepsNothingOnDisk()
+	{
+		PostPayload payload = payload("Cave Runner");
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
+
+		reporter.send(TARGET, payload, null);
+
+		verify(pendingPostStore).add(eq(payload), any(), eq(false));
+		assertEquals(List.of(), keptFiles());
+	}
+
+	@Test
+	public void aRetriedTaskPostCarriesTheScreenshotItWasTakenWith()
+	{
+		PendingPost kept = keepWithScreenshot(payload("Cave Runner"));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		ArgumentCaptor<byte[]> sent = ArgumentCaptor.forClass(byte[].class);
+		verify(botClient, times(2)).send(eq(TARGET), eq(kept.getPayload()), sent.capture());
+		assertArrayEquals(SCREENSHOT, sent.getAllValues().get(1));
+	}
+
+	@Test
+	public void theKeptScreenshotIsDeletedOnceTheBotAcceptedTheRetriedPost()
+	{
+		PendingPost kept = keepWithScreenshot(payload("Cave Runner"));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		assertEquals(List.of(), keptFiles());
+	}
+
+	@Test
+	public void theKeptScreenshotIsDeletedOnceTheBotRefusedTheRetriedPost()
+	{
+		PendingPost kept = keepWithScreenshot(payload("Cave Runner"));
+		when(botClient.send(any(), any(), any()))
+			.thenReturn(CompletableFuture.completedFuture(BotReply.refused("Not recorded: already completed.", "already completed.")));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		assertEquals(List.of(), keptFiles());
+	}
+
+	@Test
+	public void theKeptScreenshotStaysWhileTheBotStillCannotTakeThePost()
+	{
+		PendingPost kept = keepWithScreenshot(payload("Cave Runner"));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		assertEquals(List.of("0123456789abcdef.png"), keptFiles());
+	}
+
+	@Test
+	public void aRetriedPostWhoseScreenshotIsGoneIsSentWithoutOne()
+	{
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner"), true);
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		verify(botClient).send(eq(TARGET), eq(kept.getPayload()), isNull());
+		verify(pendingPostStore).remove(kept);
+	}
+
+	@Test
+	public void theScreenshotOfAPostPushedOutOfAFullQueueIsDeleted()
+	{
+		PendingPost pushedOut = keepWithScreenshot(payload("Cave Runner"));
+		PostPayload next = new PostPayload("task", "fedcba9876543210", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", "Next"), null, false, null);
+		when(pendingPostStore.add(eq(next), any(), anyBoolean())).thenReturn(List.of(pushedOut));
+
+		reporter.send(TARGET, next, SCREENSHOT);
+
+		assertEquals(List.of("fedcba9876543210.png"), keptFiles());
+	}
+
+	@Test
+	public void keepingAScreenshotLeavesTheOnesAnotherClientKeptInTheSameFolder() throws java.io.IOException
+	{
+		java.nio.file.Files.write(new java.io.File(screenshotFolder.getRoot(), "aaaaaaaaaaaaaaaa.png").toPath(), SCREENSHOT);
+
+		keepWithScreenshot(payload("Cave Runner"));
+
+		assertEquals(List.of("0123456789abcdef.png", "aaaaaaaaaaaaaaaa.png"), keptFiles());
+	}
+
+	private PendingPost keepWithScreenshot(PostPayload payload)
+	{
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload, true);
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
+		reporter.send(TARGET, payload, SCREENSHOT);
+		return kept;
+	}
+
+	private List<String> keptFiles()
+	{
+		String[] names = screenshotFolder.getRoot().list();
+		java.util.Arrays.sort(names);
+		return List.of(names);
 	}
 }
