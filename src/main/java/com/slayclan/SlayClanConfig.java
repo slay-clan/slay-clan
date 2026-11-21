@@ -21,7 +21,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = ENABLED_KEY,
 		name = "Enable posting",
-		description = "Post your completed clan tasks, drops and personal bests to your clan's Discord",
+		description = "Post your completed clan tasks, drops and personal bests to your clan's Discord for staff to approve",
 		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
 		position = 0
 	)
@@ -67,7 +67,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = SHOW_GAME_CHAT_KEY,
 		name = "Show game chat in screenshots",
-		description = "Opens the chat on the All tab in screenshots so the kill count, time and drop lines show",
+		description = "Opens the chat on the All tab in screenshots so staff can see the kill count, time and drop lines they approve from. The chat flickers once when it is switched",
 		position = 4
 	)
 	default boolean showGameChat()
@@ -78,7 +78,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PLAYER_CHAT_KEY,
 		name = "Hide player chat in screenshots",
-		description = "Hides messages from players in screenshots. Game messages stay",
+		description = "Hides messages from players in screenshots so your and others' chat stays private. Game messages stay. The chat flickers once",
 		position = 5
 	)
 	default boolean hidePlayerChat()
@@ -89,7 +89,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PRIVATE_MESSAGES_KEY,
 		name = "Hide private messages",
-		description = "Hides the split private chat above the chatbox in screenshots",
+		description = "Hides the split private chat above the chatbox in screenshots so private messages are not posted",
 		position = 6
 	)
 	default boolean hidePrivateMessages()
