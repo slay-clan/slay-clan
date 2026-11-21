@@ -13,7 +13,7 @@ public class DropEvaluatorTest
 	@Test
 	public void awardsPointsRoundedToNearestStep()
 	{
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(single("Dragon warhammer", 452_312)), dropTask());
+		List<ValuableDrop> drops = drops(List.of(single("Dragon warhammer", 452_312)), dropTask());
 
 		assertEquals(1, drops.size());
 		assertEquals("Dragon warhammer", drops.get(0).getItemName());
@@ -28,7 +28,7 @@ public class DropEvaluatorTest
 		task.setMinValue(1_000_000);
 		task.setValuePerPoint(1_000_000);
 
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(
+		List<ValuableDrop> drops = drops(List.of(
 			single("Four point four", 4_400_000),
 			single("Four point five", 4_500_000),
 			single("Four point eight", 4_800_000)), task);
@@ -41,7 +41,7 @@ public class DropEvaluatorTest
 	@Test
 	public void includesDropExactlyAtMinimumValue()
 	{
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(single("Rune platebody", 10_000)), dropTask());
+		List<ValuableDrop> drops = drops(List.of(single("Rune platebody", 10_000)), dropTask());
 
 		assertEquals(1, drops.get(0).getPoints());
 	}
@@ -49,7 +49,7 @@ public class DropEvaluatorTest
 	@Test
 	public void skipsDropBelowMinimumValue()
 	{
-		assertTrue(evaluator.evaluate(List.of(single("Rune med helm", 9_999)), dropTask()).isEmpty());
+		assertTrue(drops(List.of(single("Rune med helm", 9_999)), dropTask()).isEmpty());
 	}
 
 	@Test
@@ -60,7 +60,42 @@ public class DropEvaluatorTest
 			new PricedItem("Dragon bones", 50, 2_500, true),
 			new PricedItem("Zulrah's scales", 1, 50_000, true));
 
-		assertTrue(evaluator.evaluate(items, dropTask()).isEmpty());
+		assertTrue(drops(items, dropTask()).isEmpty());
+	}
+
+	@Test
+	public void valuableStackableItemIsReportedAsLeftOutBecauseStackablesDoNotCount()
+	{
+		DropJudgement judgement = evaluator.evaluate(List.of(new PricedItem("Venator shard", 1, 14_882_505, true)), dropTask());
+
+		assertEquals(List.of(new SkippedDrop("Venator shard", 14_882_505, "stackable items do not count")), judgement.getSkipped());
+	}
+
+	@Test
+	public void stackWorthTheMinimumOnlyAsAWholeIsNotReportedAsLeftOut()
+	{
+		DropJudgement judgement = evaluator.evaluate(List.of(new PricedItem("Death rune", 5_000, 200, true)), dropTask());
+
+		assertTrue(judgement.getSkipped().isEmpty());
+	}
+
+	@Test
+	public void valuableItemIsReportedAsLeftOutWhenTheTaskSetsNoValuePerPoint()
+	{
+		TaskDefinition task = dropTask();
+		task.setValuePerPoint(0);
+
+		DropJudgement judgement = evaluator.evaluate(List.of(single("Dragon warhammer", 452_312)), task);
+
+		assertEquals(List.of(new SkippedDrop("Dragon warhammer", 452_312, "the DROP task sets no valuePerPoint")), judgement.getSkipped());
+	}
+
+	@Test
+	public void postedDropIsNotReportedAsLeftOut()
+	{
+		DropJudgement judgement = evaluator.evaluate(List.of(single("Dragon warhammer", 452_312)), dropTask());
+
+		assertTrue(judgement.getSkipped().isEmpty());
 	}
 
 	@Test
@@ -69,7 +104,7 @@ public class DropEvaluatorTest
 		TaskDefinition task = dropTask();
 		task.setIncludeStackable(true);
 
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(new PricedItem("Zulrah's scales", 500, 150, true)), task);
+		List<ValuableDrop> drops = drops(List.of(new PricedItem("Zulrah's scales", 500, 150, true)), task);
 
 		assertEquals(1, drops.size());
 		assertEquals(500, drops.get(0).getQuantity());
@@ -83,7 +118,7 @@ public class DropEvaluatorTest
 		TaskDefinition task = dropTask();
 		task.setIncludeStackable(true);
 
-		assertTrue(evaluator.evaluate(List.of(new PricedItem("Coins", 9_999, 1, true)), task).isEmpty());
+		assertTrue(drops(List.of(new PricedItem("Coins", 9_999, 1, true)), task).isEmpty());
 	}
 
 	@Test
@@ -92,7 +127,7 @@ public class DropEvaluatorTest
 		TaskDefinition task = dropTask();
 		task.setIncludeStackable(true);
 
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(new PricedItem("Coins", 2_000_000_000, 2, true)), task);
+		List<ValuableDrop> drops = drops(List.of(new PricedItem("Coins", 2_000_000_000, 2, true)), task);
 
 		assertEquals(4_000_000_000L, drops.get(0).getValue());
 	}
@@ -100,7 +135,7 @@ public class DropEvaluatorTest
 	@Test
 	public void countsEachUnstackableCopySeparately()
 	{
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(new PricedItem("Rune platebody", 2, 38_000, false)), dropTask());
+		List<ValuableDrop> drops = drops(List.of(new PricedItem("Rune platebody", 2, 38_000, false)), dropTask());
 
 		assertEquals(2, drops.size());
 		assertEquals(38_000, drops.get(0).getValue());
@@ -110,7 +145,7 @@ public class DropEvaluatorTest
 	@Test
 	public void evaluatesEachItemSeparately()
 	{
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(
+		List<ValuableDrop> drops = drops(List.of(
 			single("Dragon warhammer", 452_312),
 			single("Bones", 100),
 			single("Rune platebody", 38_000)), dropTask());
@@ -122,7 +157,7 @@ public class DropEvaluatorTest
 	@Test
 	public void skipsUntradeableItemsWorthNothing()
 	{
-		assertTrue(evaluator.evaluate(List.of(single("Clue scroll (elite)", 0)), dropTask()).isEmpty());
+		assertTrue(drops(List.of(single("Clue scroll (elite)", 0)), dropTask()).isEmpty());
 	}
 
 	@Test
@@ -131,15 +166,20 @@ public class DropEvaluatorTest
 		TaskDefinition task = dropTask();
 		task.setValuePerPoint(0);
 
-		assertTrue(evaluator.evaluate(List.of(single("Dragon warhammer", 452_312)), task).isEmpty());
+		assertTrue(drops(List.of(single("Dragon warhammer", 452_312)), task).isEmpty());
 	}
 
 	@Test
 	public void handlesPricesBeyondIntRange()
 	{
-		List<ValuableDrop> drops = evaluator.evaluate(List.of(single("Twisted bow", 3_000_000_000L)), dropTask());
+		List<ValuableDrop> drops = drops(List.of(single("Twisted bow", 3_000_000_000L)), dropTask());
 
 		assertEquals(300_000, drops.get(0).getPoints());
+	}
+
+	private List<ValuableDrop> drops(List<PricedItem> items, TaskDefinition task)
+	{
+		return evaluator.evaluate(items, task).getDrops();
 	}
 
 	private static PricedItem single(String name, long price)

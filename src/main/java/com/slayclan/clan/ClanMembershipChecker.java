@@ -27,6 +27,11 @@ public class ClanMembershipChecker
 		return playerNames.stream().filter(name -> isMember(clan, name)).collect(Collectors.toList());
 	}
 
+	public ClanTeam team(ClanSettings clan, String expectedClanName, List<String> playerNames)
+	{
+		return new ClanTeam(membersAmong(clan, expectedClanName, playerNames), allMembers(clan, expectedClanName, playerNames));
+	}
+
 	private static boolean isMember(ClanSettings clan, String name)
 	{
 		return clan.findMember(normalize(name)) != null;

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import net.runelite.client.config.ConfigManager;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
@@ -23,7 +24,7 @@ public class PendingPostStoreTest
 	private ConfigManager configManager;
 	private PendingPostStore store;
 	private final PostPayload payload = new PostPayload("task", "0123456789abcdef", "Clanmate", null, NOW.toString(),
-		Map.of("Task", "Clan Raid"), null, false, null);
+		Map.of("Task", "Clan Raid"), null, null);
 
 	@Before
 	public void setUp()
@@ -41,7 +42,7 @@ public class PendingPostStoreTest
 	@Test
 	public void roundTripsPendingPosts()
 	{
-		store.add(payload, NOW);
+		store.add(payload, NOW, false);
 
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
@@ -56,7 +57,7 @@ public class PendingPostStoreTest
 	@Test
 	public void dropsPostsOlderThanAWeek()
 	{
-		store.add(payload, NOW.minus(PendingPostStore.MAX_AGE).minusSeconds(1));
+		store.add(payload, NOW.minus(PendingPostStore.MAX_AGE).minusSeconds(1), false);
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
 		when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(saved.getValue());
@@ -71,7 +72,7 @@ public class PendingPostStoreTest
 		for (int i = 0; i <= PendingPostStore.MAX_POSTS; i++)
 		{
 			when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(stored);
-			store.add(payload, NOW.plusSeconds(i));
+			store.add(payload, NOW.plusSeconds(i), false);
 			ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 			verify(configManager, org.mockito.Mockito.atLeastOnce()).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
 			stored = saved.getValue();
@@ -85,9 +86,27 @@ public class PendingPostStoreTest
 	}
 
 	@Test
+	public void aPostAddedToAFullQueueTellsWhichPostItPushedOut()
+	{
+		String stored = null;
+		List<PendingPost> pushedOut = List.of();
+		for (int i = 0; i <= PendingPostStore.MAX_POSTS; i++)
+		{
+			when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(stored);
+			pushedOut = store.add(payload, NOW.plusSeconds(i), false);
+			ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
+			verify(configManager, org.mockito.Mockito.atLeastOnce()).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
+			stored = saved.getValue();
+		}
+
+		assertEquals(1, pushedOut.size());
+		assertEquals(NOW.toString(), pushedOut.get(0).getCreatedAt());
+	}
+
+	@Test
 	public void countsDroppedPostsUntilTheyAreTaken()
 	{
-		store.add(payload, NOW.minus(PendingPostStore.MAX_AGE).minusSeconds(1));
+		store.add(payload, NOW.minus(PendingPostStore.MAX_AGE).minusSeconds(1), false);
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
 		when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(saved.getValue());
@@ -135,7 +154,7 @@ public class PendingPostStoreTest
 	@Test
 	public void keepsTheWholePostForTheRetry()
 	{
-		store.add(payload, NOW);
+		store.add(payload, NOW, false);
 
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
@@ -145,9 +164,29 @@ public class PendingPostStoreTest
 	}
 
 	@Test
+	public void aKeptPostRemembersThatItsScreenshotWaitsOnDisk()
+	{
+		store.add(payload, NOW, true);
+		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
+		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
+		when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(saved.getValue());
+
+		assertTrue(store.load(NOW).get(0).isScreenshotKept());
+	}
+
+	@Test
+	public void aPostKeptByAnOlderPluginVersionCountsAsHavingNoScreenshot()
+	{
+		when(configManager.getConfiguration("slayclanmemory", "pendingPosts"))
+			.thenReturn("[{\"createdAt\":\"" + NOW + "\",\"payload\":{\"kind\":\"task\",\"nonce\":\"0123456789abcdef\"}}]");
+
+		assertFalse(store.load(NOW).get(0).isScreenshotKept());
+	}
+
+	@Test
 	public void removesAPostAfterItWasSent()
 	{
-		store.add(payload, NOW);
+		store.add(payload, NOW, false);
 		ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
 		verify(configManager).setConfiguration(eq("slayclanmemory"), eq("pendingPosts"), saved.capture());
 		when(configManager.getConfiguration("slayclanmemory", "pendingPosts")).thenReturn(saved.getValue());

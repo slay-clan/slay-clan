@@ -22,15 +22,15 @@ Points go to your main when you play on an alt. Tasks and points are managed by 
 - **One-time tasks** (Social, PvM, Speed-chaser, Clogging) the first time you complete them.
 - **Repeatable tasks** every time.
 - **Group tasks** only when everyone in the party is in the clan. Each player with the plugin posts their own, and the post names the clan members in the team.
-- **Valuable drops** with the item and its value. The bot asks you in its approval channel who you split with, or press On my own. Only you can answer.
-- **Personal bests** with a screenshot, plus your fastest kill per team size and your current bests once, so the PB board can be filled in. The bot decides what makes the board, and asks you with buttons when it cannot tell a team size. When the clan starts a PB season, the fastest-kill memory starts over with it.
-- **Activity**: new collection log items and combat achievements and your overall progress, for the members hub. These give no points on their own.
+- **Valuable drops** with the item and its value, and from a raid or an instanced boss also the clan members in the team and whether the whole team was in the clan. The bot asks you in its approval channel who you split with, or press On my own. Only you can answer.
+- **Personal bests** with a screenshot, plus your fastest kill per team size, since the game keeps one personal best per boss. The plugin does not post a time the game only remembers from before. The bot decides what makes the board. When the clan starts a PB season, the fastest-kill memory starts over with it.
+- **Activity**: new collection log items and combat achievements, your overall progress and your stored personal bests, including your Tombs of Amascut total records, for the members hub. These give no points on their own.
 
 PvP loot and loot keys never count. Nothing is posted on Deadman, Leagues, speedrun, tournament or beta worlds.
 
 ![A clan task awaiting review in the clan Discord](docs/images/review-post.png)
 
-Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window. Your private messages are left out of it as long as **Hide private messages** is on, which needs "Split friends private chat" on in the game settings. Nothing else is sent. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
+Each post goes straight to the clan's bot with your token, in-game name, the task and a screenshot of your RuneLite window. Staff check the game's own lines in it (kill count, time, personal best, drop), so for that one frame the plugin opens a closed chatbox, or one on another tab, on the All tab (the Game tab while player chat is shown) with **Show game chat in screenshots**, and leaves every message written by a player out of it with **Hide player chat in screenshots**: public, private, friends chat, clan, guest clan and group chat, including your own. Game messages and clan broadcasts stay. Your tab, your closed chatbox and your chat are back right after the frame, so the chat flickers once. That flicker is expected; with **Show game chat in screenshots** off the tab is never switched and only the hidden lines blink. If the game draws no frame in time, the post goes without a screenshot rather than with your chat in it. **Hide private messages** also hides the split private chat above the chatbox, with your friends' login notices, when "Split friends private chat" is on in the game settings. All three are on by default. Nothing else is sent. A task judged right after login waits until you close the welcome screen, so its screenshot shows you in the game. The bot answers at once and the plugin tells you in the chat: sent for review, refused and why, or waiting for your answer in Discord.
 
 ## What the plugin cannot see
 
@@ -48,9 +48,9 @@ Report it in the clan's bug report channel. Not in Slay Clan? Open an issue on [
 - **Raid or boss**: team size, mode and who was there
 - **Log**: the `SlayClan` lines from `%USERPROFILE%\.runelite\logs\client.log` around that time
 
-The log says why a task was skipped. Submit the task by hand in the meantime.
+The log says why a task was skipped, and a drop worth at least the clan's minimum that was not posted leaves a line naming the item, its value and the reason, such as a stackable item. Submit the task by hand in the meantime.
 
-If the bot cannot be reached, the post is kept and sent again later without the screenshot. Posts older than a week are dropped, and the plugin tells you at login so you can submit them by hand.
+If the bot cannot be reached, the post is kept and sent again later with its screenshot, which waits in the plugin's folder under `.runelite/plugin-data` until the bot has answered and is then deleted. Posts older than a week are dropped, their screenshots are cleared the next time the plugin tidies its folder, and the plugin tells you at login so you can submit them by hand.
 
 ## For clan staff
 
