@@ -21,7 +21,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = ENABLED_KEY,
 		name = "Enable posting",
-		description = "Fetch your clan's config and post completed clan tasks, your collection log and combat achievement progress and your personal bests to its Discord",
+		description = "Post your completed clan tasks, drops and personal bests to your clan's Discord",
 		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
 		position = 0
 	)
@@ -67,7 +67,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = SHOW_GAME_CHAT_KEY,
 		name = "Show game chat in screenshots",
-		description = "Opens the chatbox on the All tab (or the Game tab while player chat is shown) for the moment of a screenshot when it is closed or on another tab, so staff can see the kill count, time or drop line. Your tab and closed chatbox come back right after",
+		description = "Opens the chat on the All tab in screenshots so the kill count, time and drop lines show",
 		position = 4
 	)
 	default boolean showGameChat()
@@ -78,7 +78,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PLAYER_CHAT_KEY,
 		name = "Hide player chat in screenshots",
-		description = "Leaves every message written by a player out of posted screenshots: public, private, friends chat, clan, guest clan and group chat, including your own. Game messages and clan broadcasts stay. The chat flickers once per screenshot",
+		description = "Hides messages from players in screenshots. Game messages stay",
 		position = 5
 	)
 	default boolean hidePlayerChat()
@@ -89,7 +89,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PRIVATE_MESSAGES_KEY,
 		name = "Hide private messages",
-		description = "Leaves the split private chat above the chatbox out of posted screenshots, with your friends' login notices. Only matters with \"Split friends private chat\" on in the game settings, private messages inside the chatbox are left out by Hide player chat in screenshots. The chat flickers once per screenshot",
+		description = "Hides the split private chat above the chatbox in screenshots",
 		position = 6
 	)
 	default boolean hidePrivateMessages()
