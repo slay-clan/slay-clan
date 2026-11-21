@@ -67,7 +67,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = SHOW_GAME_CHAT_KEY,
 		name = "Show game chat in screenshots",
-		description = "Opens the chat on the All tab in screenshots so staff can see the kill count, time and drop lines they approve from. The chat flickers once when it is switched",
+		description = "Opens the chat on the All tab in screenshots so staff can see the kill count, time and drop lines they approve from. The chat flickers once when it is switched. On by default",
 		position = 4
 	)
 	default boolean showGameChat()
@@ -78,7 +78,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PLAYER_CHAT_KEY,
 		name = "Hide player chat in screenshots",
-		description = "Hides messages from players in screenshots so your and others' chat stays private. Game messages stay. The chat flickers once",
+		description = "Hides messages from players in screenshots so your and others' chat stays private. Game messages stay. The chat flickers once. On by default",
 		position = 5
 	)
 	default boolean hidePlayerChat()
@@ -89,7 +89,7 @@ public interface SlayClanConfig extends Config
 	@ConfigItem(
 		keyName = HIDE_PRIVATE_MESSAGES_KEY,
 		name = "Hide private messages",
-		description = "Hides the split private chat above the chatbox in screenshots so private messages are not posted",
+		description = "Hides the split private chat above the chatbox in screenshots so private messages are not posted. On by default",
 		position = 6
 	)
 	default boolean hidePrivateMessages()
