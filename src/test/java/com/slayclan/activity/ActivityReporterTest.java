@@ -1,5 +1,6 @@
 package com.slayclan.activity;
 
+import static org.junit.Assert.assertTrue;
 import com.google.gson.Gson;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
@@ -36,6 +37,7 @@ public class ActivityReporterTest
 	private PendingPostStore pendingPostStore;
 	private DeliveredSnapshots deliveredSnapshots;
 	private final List<BotReply> told = new ArrayList<>();
+	private final Map<String, BotReply> answered = new java.util.HashMap<>();
 	private ActivityReporter reporter;
 
 	@Before
@@ -44,8 +46,21 @@ public class ActivityReporterTest
 		botClient = mock(BotClient.class);
 		pendingPostStore = mock(PendingPostStore.class);
 		deliveredSnapshots = mock(DeliveredSnapshots.class);
-		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.delivered(null)));
-		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, told::add);
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
+		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, deliveredSnapshots, new BotAnswers()
+		{
+			@Override
+			public void tell(BotReply reply)
+			{
+				told.add(reply);
+			}
+
+			@Override
+			public void taskAnswered(String taskId, BotReply reply)
+			{
+				answered.put(taskId, reply);
+			}
+		});
 	}
 
 	@Test
@@ -54,7 +69,7 @@ public class ActivityReporterTest
 		PendingPost first = new PendingPost("2026-10-10T18:00:00Z", payload("Old post"));
 		PendingPost second = new PendingPost("2026-10-10T18:00:01Z", payload("Older post"));
 		when(botClient.send(any(), any(), any()))
-			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.delivered(null)));
+			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.recorded(null)));
 
 		reporter.retry(() -> TARGET, List.of(first, second));
 
@@ -91,9 +106,44 @@ public class ActivityReporterTest
 		assertEquals(1, told.size());
 	}
 
+	@Test
+	public void refusedSnapshotIsSentAgainNextTime()
+	{
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(
+			BotReply.refused("Not recorded: Clanmate is not listed as your account.", "Clanmate is not listed as your account.")));
+
+		reporter.reportCaSnapshot(TARGET, "Clanmate", ACCOUNT, List.of());
+		reporter.reportCaSnapshot(TARGET, "Clanmate", ACCOUNT, List.of());
+
+		verify(botClient, times(2)).send(eq(TARGET), any(), isNull());
+		verify(deliveredSnapshots, never()).markDelivered(any(), anyLong(), anyString());
+	}
+
+	@Test
+	public void tellsWhichTaskTheBotAnswered()
+	{
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(
+			BotReply.refused("Not recorded: Clanmate is not listed as your account.", "Clanmate is not listed as your account.")));
+
+		reporter.send(TARGET, payload("Cave Runner").withTaskId("cave-runner"), null);
+
+		assertEquals("Clanmate is not listed as your account.", answered.get("cave-runner").getReason());
+	}
+
+	@Test
+	public void keptTaskPostStillSettlesItsTaskWhenRetried()
+	{
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner").withTaskId("cave-runner"));
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.recorded(null)));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		assertTrue(answered.get("cave-runner").isRecorded());
+	}
+
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false);
+		return new PostPayload("task", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
 	}
 
 	@Test
@@ -136,7 +186,7 @@ public class ActivityReporterTest
 	public void saysInChatWhatTheBotAnsweredAboutAPersonalBest()
 	{
 		when(botClient.send(any(), any(), any()))
-			.thenReturn(CompletableFuture.completedFuture(BotReply.delivered("Not recorded: slower than your time on the board.")));
+			.thenReturn(CompletableFuture.completedFuture(BotReply.refused("Not recorded: slower than your time on the board.", "slower than your time on the board.")));
 		PostPayload payload = new ActivityFormatter(new Gson()).currentBossBest("Clanmate", "Yama", "3:09",
 			com.slayclan.trigger.TimedLine.Kind.SINGLE, java.time.Instant.EPOCH);
 
@@ -156,8 +206,8 @@ public class ActivityReporterTest
 
 		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[6], new int[6]), clog);
 		reporter.reportStatusIfChanged(TARGET, "Clanmate", ACCOUNT, new CombatAchievementStatus(new int[]{1, 0, 0, 0, 0, 0}, new int[6]), clog);
-		second.complete(BotReply.delivered(null));
-		first.complete(BotReply.delivered(null));
+		second.complete(BotReply.recorded(null));
+		first.complete(BotReply.recorded(null));
 
 		ArgumentCaptor<String> remembered = ArgumentCaptor.forClass(String.class);
 		verify(deliveredSnapshots, times(1)).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), remembered.capture());
@@ -169,7 +219,7 @@ public class ActivityReporterTest
 	public void sendsAStatusAgainAfterTheFirstAttemptFailed()
 	{
 		when(botClient.send(any(), any(), any()))
-			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.delivered(null)));
+			.thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)), CompletableFuture.completedFuture(BotReply.recorded(null)));
 		CombatAchievementStatus ca = new CombatAchievementStatus(new int[6], new int[6]);
 		CollectionLogStatus clog = new CollectionLogStatus(10, 100, new int[5], new int[5]);
 

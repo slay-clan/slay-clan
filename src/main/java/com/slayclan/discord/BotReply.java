@@ -3,8 +3,10 @@ package com.slayclan.discord;
 import lombok.Value;
 
 /**
- * The bot's answer to a post. A delivered post is done, whether recorded or refused, and is never sent again;
- * one that was not delivered is kept for retry. The message, when there is one, is shown in the game chat.
+ * The bot's answer to a post. A delivered post is answered, recorded or refused, and is never sent again as
+ * it is; one that was not delivered is kept for retry. A refusal carries the bot's reason, so the caller can
+ * tell one that settles the matter from one the member can still put right. The message, when there is one,
+ * is shown in the game chat.
  */
 @Value
 public class BotReply
@@ -20,27 +22,51 @@ public class BotReply
 		UNREACHABLE
 	}
 
+	public enum Verdict
+	{
+		RECORDED,
+		REFUSED,
+		UNANSWERED
+	}
+
 	boolean delivered;
 	String message;
 	Blocker blocker;
+	Verdict verdict;
+	String reason;
 
-	public static BotReply delivered(String message)
+	public static BotReply recorded(String message)
 	{
-		return new BotReply(true, message, null);
+		return new BotReply(true, message, null, Verdict.RECORDED, null);
+	}
+
+	public static BotReply refused(String message, String reason)
+	{
+		return new BotReply(true, message, null, Verdict.REFUSED, reason);
 	}
 
 	public static BotReply undelivered(String message)
 	{
-		return new BotReply(false, message, null);
+		return new BotReply(false, message, null, Verdict.UNANSWERED, null);
 	}
 
 	public static BotReply blocked(Blocker blocker, String message)
 	{
-		return new BotReply(false, message, blocker);
+		return new BotReply(false, message, blocker, Verdict.UNANSWERED, null);
 	}
 
 	public boolean isBlocked()
 	{
 		return blocker != null;
+	}
+
+	public boolean isRecorded()
+	{
+		return verdict == Verdict.RECORDED;
+	}
+
+	public boolean isRefused()
+	{
+		return verdict == Verdict.REFUSED;
 	}
 }

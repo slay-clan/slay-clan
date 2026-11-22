@@ -40,6 +40,7 @@ public class BotClient
 	static final String SCREENSHOT_PART = "screenshot";
 	private static final String STATUS_DUPLICATE = "duplicate";
 	private static final String STATUS_RECORDED = "recorded";
+	private static final String STATUS_REFUSED = "refused";
 	private static final long DEFAULT_RETRY_MILLIS = 1_000;
 	// The bot's limit resets within a minute; anything longer is left to the pending post retry
 	private static final long MAX_RETRY_MILLIS = 60_000;
@@ -63,6 +64,7 @@ public class BotClient
 	{
 		String status;
 		String message;
+		String reason;
 	}
 
 	@Inject
@@ -163,7 +165,7 @@ public class BotClient
 		Answer answer = answerOf(response);
 		if (response.isSuccessful())
 		{
-			return BotReply.delivered(chatLine(payload, answer));
+			return answered(payload, answer);
 		}
 		if (response.code() == UNAUTHORIZED)
 		{
@@ -177,7 +179,7 @@ public class BotClient
 		// A post without its screenshot would be unreviewable, so it is dropped with a clear word instead of resent
 		if (response.code() == TOO_LARGE)
 		{
-			return BotReply.delivered(SCREENSHOT_TOO_LARGE);
+			return BotReply.refused(SCREENSHOT_TOO_LARGE, null);
 		}
 		if (botCouldNotTakeIt(response))
 		{
@@ -185,7 +187,17 @@ public class BotClient
 			return BotReply.undelivered(null);
 		}
 		log.warn("The clan bot rejected a {} post with status {}", payload.getKind(), response.code());
-		return BotReply.delivered(answer == null ? "The clan bot rejected a post." : answer.getMessage());
+		return BotReply.refused(answer == null ? "The clan bot rejected a post." : answer.getMessage(), null);
+	}
+
+	// An answer that could not be read still counts as recorded: the post reached the bot
+	private static BotReply answered(PostPayload payload, Answer answer)
+	{
+		if (answer != null && STATUS_REFUSED.equals(answer.getStatus()))
+		{
+			return BotReply.refused(answer.getMessage(), answer.getReason());
+		}
+		return BotReply.recorded(chatLine(payload, answer));
 	}
 
 	private static boolean rateLimitedWithRetryLeft(Response response, boolean retryOnRateLimit)
