@@ -125,39 +125,17 @@ public class ActivityFormatterTest
 	}
 
 	@Test
-	public void currentBossBestClaimsNoScaleSinceTheGameKeepsOnePerBoss()
+	public void aFastestKillAtAScaleIsNeverFlaggedAsTheGamesStoredBest()
 	{
-		PostPayload post = formatter.currentBossBest("Clanmate", "Yama", "3:09", Kind.SINGLE, AT);
-
-		assertEquals(Map.of(
-			"Boss", "Yama",
-			"Time", "3:09",
-			"Time type", "single",
-			"Scale", "unknown, the game keeps one personal best per boss",
-			"New", "no",
-			"Stored best", "yes"), post.getFields());
-		assertFalse(post.getFields().containsKey("Team size"));
-	}
-
-	@Test
-	public void aStoredBestReportedAtARaidIsFlaggedSoTheBotCanKeepItOffASeasonBoard()
-	{
-		PostPayload stored = formatter.personalBest("Clanmate", "Chambers of Xeric", "29:49.20", Kind.SINGLE, 3,
-			List.of("Clanmate", "Raidbuddy", "Third"), PersonalBestClaim.CURRENT, AT);
-		PostPayload kill = formatter.personalBest("Clanmate", "Yama", "5:57", Kind.SINGLE, 1, List.of("Clanmate"),
+		PostPayload post = formatter.personalBest("Clanmate", "Yama", "5:57", Kind.SINGLE, 1, List.of("Clanmate"),
 			PersonalBestClaim.FASTEST_AT_SCALE, AT);
 
-		assertEquals("yes", stored.getFields().get("Stored best"));
-		assertEquals("no", stored.getFields().get("New"));
-		assertEquals("no", kill.getFields().get("Stored best"));
+		assertEquals("no", post.getFields().get("Stored best"));
 	}
 
 	@Test
-	public void onlyACurrentBestReportedForTheBoardIsQuietInTheChat()
+	public void aPersonalBestReceiptShowsInTheChatWhileACollectionLogReceiptStaysQuiet()
 	{
-		assertTrue(formatter.currentBossBest("Clanmate", "Yama", "3:09", Kind.SINGLE, AT).isReceiptQuiet());
-		assertTrue(formatter.personalBest("Clanmate", "Zulrah", "0:55", Kind.SINGLE, 1, List.of("Clanmate"), PersonalBestClaim.CURRENT, AT)
-			.isReceiptQuiet());
 		assertFalse(formatter.personalBest("Clanmate", "Zulrah", "0:55", Kind.SINGLE, 1, List.of("Clanmate"), PersonalBestClaim.FASTEST_AT_SCALE, AT)
 			.isReceiptQuiet());
 		assertTrue(formatter.clogEvent("Clanmate", "Vorki", 21992, 1, 141, AT).isReceiptQuiet());

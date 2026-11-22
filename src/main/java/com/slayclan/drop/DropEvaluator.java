@@ -1,29 +1,63 @@
 package com.slayclan.drop;
 
 import com.slayclan.config.TaskDefinition;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class DropEvaluator
 {
-	public List<ValuableDrop> evaluate(List<PricedItem> items, TaskDefinition dropTask)
+	/**
+	 * The drops to post, plus the items worth at least the task's minimum value that the task leaves out, each with
+	 * the reason.
+	 */
+	public DropJudgement evaluate(List<PricedItem> items, TaskDefinition dropTask)
 	{
-		long valuePerPoint = dropTask.getValuePerPoint();
-		if (valuePerPoint <= 0)
-		{
-			return Collections.emptyList();
-		}
 		long minValue = Math.max(1, dropTask.getMinValue());
+		List<ValuableDrop> drops = new ArrayList<>();
+		List<SkippedDrop> skipped = new ArrayList<>();
+		for (PricedItem item : items)
+		{
+			Optional<String> reasonNotCounted = reasonNotCounted(item, dropTask);
+			toDrops(item)
+				.filter(drop -> judgedValue(item, drop, dropTask) >= minValue)
+				.forEach(drop -> reasonNotCounted.ifPresentOrElse(
+					reason -> skipped.add(new SkippedDrop(drop.getItemName(), drop.getValue(), reason)),
+					() -> drops.add(withPoints(drop, dropTask.getValuePerPoint()))));
+		}
+		return new DropJudgement(drops, skipped);
+	}
 
-		return items.stream()
-			.filter(item -> dropTask.isIncludeStackable() || !item.isStackable())
-			.flatMap(DropEvaluator::toDrops)
-			.filter(drop -> drop.getValue() >= minValue)
-			.map(drop -> new ValuableDrop(drop.getItemName(), drop.getQuantity(), drop.getValue(), roundedPoints(drop.getValue(), valuePerPoint)))
-			.collect(Collectors.toList());
+	private static Optional<String> reasonNotCounted(PricedItem item, TaskDefinition dropTask)
+	{
+		if (excludedAsStackable(item, dropTask))
+		{
+			return Optional.of("stackable items do not count");
+		}
+		if (dropTask.getValuePerPoint() <= 0)
+		{
+			return Optional.of("the DROP task sets no valuePerPoint");
+		}
+		return Optional.empty();
+	}
+
+	// Runes and coins from a raid chest add up past the minimum as a stack, so a left-out stack is only worth
+	// mentioning when a single unit reaches it
+	private static long judgedValue(PricedItem item, ValuableDrop drop, TaskDefinition dropTask)
+	{
+		return excludedAsStackable(item, dropTask) ? item.getUnitPrice() : drop.getValue();
+	}
+
+	private static boolean excludedAsStackable(PricedItem item, TaskDefinition dropTask)
+	{
+		return item.isStackable() && !dropTask.isIncludeStackable();
+	}
+
+	private static ValuableDrop withPoints(ValuableDrop drop, long valuePerPoint)
+	{
+		return new ValuableDrop(drop.getItemName(), drop.getQuantity(), drop.getValue(), roundedPoints(drop.getValue(), valuePerPoint));
 	}
 
 	/**

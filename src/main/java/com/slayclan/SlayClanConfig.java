@@ -15,11 +15,13 @@ public interface SlayClanConfig extends Config
 	String CLAN_TOKEN_KEY = "clanToken";
 	String BOT_URL_KEY = "botUrl";
 	String HIDE_PRIVATE_MESSAGES_KEY = "hidePrivateMessages";
+	String SHOW_GAME_CHAT_KEY = "showGameChat";
+	String HIDE_PLAYER_CHAT_KEY = "hidePlayerChat";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
 		name = "Enable posting",
-		description = "Fetch your clan's config and post completed clan tasks, your collection log and combat achievement progress and your personal bests to its Discord",
+		description = "Post your completed clan tasks, drops and personal bests to your clan's Discord for staff to approve",
 		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
 		position = 0
 	)
@@ -63,10 +65,32 @@ public interface SlayClanConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = SHOW_GAME_CHAT_KEY,
+		name = "Show game chat in screenshots",
+		description = "Opens the chat on the All tab in screenshots so staff can see the kill count, time and drop lines they approve from. The chat flickers once when it is switched. On by default",
+		position = 4
+	)
+	default boolean showGameChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = HIDE_PLAYER_CHAT_KEY,
+		name = "Hide player chat in screenshots",
+		description = "Hides messages from players in screenshots so your and others' chat stays private. Game messages stay. The chat flickers once. On by default",
+		position = 5
+	)
+	default boolean hidePlayerChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = HIDE_PRIVATE_MESSAGES_KEY,
 		name = "Hide private messages",
-		description = "Leaves your private messages out of posted screenshots. Needs \"Split friends private chat\" on in the game settings, otherwise they sit in the chatbox. The chat flickers once per screenshot",
-		position = 4
+		description = "Hides the split private chat above the chatbox in screenshots so private messages are not posted. On by default",
+		position = 6
 	)
 	default boolean hidePrivateMessages()
 	{

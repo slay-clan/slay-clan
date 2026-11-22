@@ -41,6 +41,12 @@ public class RaidParticipantReader
 		VarClientID.TFA_CLIENT_NAME3, VarClientID.TFA_CLIENT_NAME4, VarClientID.TFA_CLIENT_NAME5,
 		VarClientID.TFA_CLIENT_NAME6, VarClientID.TFA_CLIENT_NAME7
 	};
+	// Each slot holds that member's health and is 0 while the slot is empty, the count RuneLite's Chat Commands
+	// plugin files its ToA personal bests under
+	private static final int[] TOA_PARTY_SLOTS = {
+		VarbitID.TOA_CLIENT_P0, VarbitID.TOA_CLIENT_P1, VarbitID.TOA_CLIENT_P2, VarbitID.TOA_CLIENT_P3,
+		VarbitID.TOA_CLIENT_P4, VarbitID.TOA_CLIENT_P5, VarbitID.TOA_CLIENT_P6, VarbitID.TOA_CLIENT_P7
+	};
 	// Slot 0 is the player themselves and has no varbit
 	private static final int[] TFA_PARTY_SLOTS = {
 		VarbitID.TFA_CLIENT_P1, VarbitID.TFA_CLIENT_P2, VarbitID.TFA_CLIENT_P3, VarbitID.TFA_CLIENT_P4,
@@ -62,17 +68,32 @@ public class RaidParticipantReader
 	}
 
 	/**
-	 * How many players the game says are in the party, or 0 when it does not say. The Fractured Archive keeps
-	 * one varbit per party slot, which is set while a player fills it, so the count stays right even when the
-	 * name list could not be read.
+	 * How many players the game says are in the party, or 0 when it does not say. The Tombs of Amascut and the
+	 * Fractured Archive keep one varbit per party slot, which is set while a player fills it, so the count stays
+	 * right even when the name list could not be read. The Theatre of Blood keeps no such count.
 	 */
 	public int gamesTeamSize(String trigger)
 	{
+		if (trigger.startsWith(TOMBS_OF_AMASCUT))
+		{
+			return toaTeamSize();
+		}
 		if (!trigger.startsWith(FRACTURED_ARCHIVE))
 		{
 			return 0;
 		}
-		return 1 + (int) Arrays.stream(TFA_PARTY_SLOTS).filter(slot -> client.getVarbitValue(slot) != 0).count();
+		return 1 + filledSlots(TFA_PARTY_SLOTS);
+	}
+
+	/** 0 when the game's party slots are all empty, so the team size is unknown. */
+	public int toaTeamSize()
+	{
+		return filledSlots(TOA_PARTY_SLOTS);
+	}
+
+	private int filledSlots(int[] slotVarbits)
+	{
+		return (int) Arrays.stream(slotVarbits).filter(slot -> client.getVarbitValue(slot) != 0).count();
 	}
 
 	private List<String> raidPartyList(String trigger)

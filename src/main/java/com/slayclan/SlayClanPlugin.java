@@ -14,7 +14,9 @@ import com.slayclan.activity.PersonalBestClaim;
 import com.slayclan.activity.PersonalBestReader;
 import com.slayclan.activity.ScaleBestStore;
 import com.slayclan.activity.StoredPersonalBest;
+import com.slayclan.activity.ToaTotalBestStore;
 import com.slayclan.clan.ClanMembershipChecker;
+import com.slayclan.clan.ClanTeam;
 import com.slayclan.clan.MainGameWorld;
 import com.slayclan.config.RemoteConfig;
 import com.slayclan.config.RemoteConfigService;
@@ -23,12 +25,16 @@ import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.GameViewWatch;
+import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
+import com.slayclan.drop.DropJudgement;
 import com.slayclan.drop.PricedItem;
+import com.slayclan.drop.SkippedDrop;
 import com.slayclan.drop.ValuableDrop;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
@@ -65,6 +71,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -77,6 +84,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -91,14 +99,17 @@ import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ScriptCallbackEvent;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
@@ -120,6 +131,7 @@ import net.runelite.client.util.Text;
 @PluginDescriptor(
 	name = "Slay Clan",
 	description = "Posts completed Slay Clan tasks to the clan Discord",
+	internalName = "slay-clan",
 	tags = {"clan", "discord", "raids", "cox"}
 )
 public class SlayClanPlugin extends Plugin implements BotAnswers
@@ -131,6 +143,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static final int SETUP_WARNING_DELAY_TICKS = 15;
 	// Loot Tracker reports opened PvP loot keys under this name
 	private static final String PVP_LOOT_CHEST = "Loot Chest";
+	// Loot Tracker names a raid's reward chest after the raid, the same in every mode
+	private static final Set<String> RAID_CHEST_SOURCES = Set.of("Chambers of Xeric", "Theatre of Blood", "Tombs of Amascut", "Fractured Archive");
 	// The team size line is printed a moment before the completion count
 	private static final int TEAM_SIZE_MAX_AGE_TICKS = 5;
 	// Kill count, time and team size lines can arrive in any order across neighbouring ticks
@@ -150,6 +164,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static final Set<String> POSTING_KEYS = Set.of(
 		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY, SlayClanConfig.BOT_URL_KEY);
 	private static final String RETIRED_DISCORD_NAME_KEY = "discordName";
+	private static final String KEPT_SCREENSHOT_FOLDER = "pending-screenshots";
 
 	@Inject
 	private Client client;
@@ -185,6 +200,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private PendingPostStore pendingPostStore;
 
 	@Inject
+	private KeptScreenshots keptScreenshots;
+
+	@Inject
 	private Gson gson;
 
 	@Inject
@@ -206,6 +224,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final List<TickedTime> recentTimes = new ArrayList<>();
 	private int lastRaidTeamSize;
 	private int lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
+	private int coxTeamSizeUntilLeft;
 	private final KillCountDetector killCountDetector = new KillCountDetector();
 	private final TaskMatcher taskMatcher = new TaskMatcher();
 	private final GameDataTaskEvaluator gameDataTaskEvaluator = new GameDataTaskEvaluator(taskMatcher, timedTaskFilter);
@@ -224,14 +243,15 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private boolean loginPending;
 	private final PersonalBestDetector personalBestDetector = new PersonalBestDetector();
 	private final List<TickedPersonalBest> recentPersonalBests = new ArrayList<>();
-	private final Set<String> bossesReportedThisLogin = new HashSet<>();
 	private CombatAchievementReader combatAchievementReader;
 	private CollectionLogReader collectionLogReader;
 	private CollectionLogCapture collectionLogCapture;
+	private GameViewWatch gameViewWatch;
 	private ActivityFormatter activityFormatter;
 	private ActivityReporter activityReporter;
 	private DeliveredSnapshots deliveredSnapshots;
 	private ScaleBestStore scaleBestStore;
+	private ToaTotalBestStore toaTotalBestStore;
 	private ItemNameIndex itemNameIndex;
 	private boolean statusCheckPending;
 	private boolean caSnapshotPending;
@@ -239,6 +259,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private PersonalBestReader personalBestReader;
 	// Logged once per login, as every event would otherwise repeat it
 	private boolean postingBlockedLogged;
+	private boolean noDropTaskLogged;
+	private boolean blockedDropLogged;
 	// Read once per login on the client thread, since canPost also runs on the executor
 	private volatile boolean mainGameWorld = true;
 	// Each said once per login and once per settings change, as every post would otherwise repeat it
@@ -259,12 +281,15 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		combatAchievementReader = new CombatAchievementReader(client);
 		collectionLogReader = new CollectionLogReader(client);
 		collectionLogCapture = new CollectionLogCapture(client, itemManager, this::canPostForClan);
+		gameViewWatch = new GameViewWatch(this::welcomeScreenOpen);
 		personalBestReader = new PersonalBestReader(configManager);
 		activityFormatter = new ActivityFormatter(gson);
 		deliveredSnapshots = new DeliveredSnapshots(configManager);
 		scaleBestStore = new ScaleBestStore(configManager);
+		toaTotalBestStore = new ToaTotalBestStore(configManager);
 		itemNameIndex = new ItemNameIndex(client);
-		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, deliveredSnapshots, this);
+		activityReporter = new ActivityReporter(activityFormatter, botClient, pendingPostStore, keptScreenshots, deliveredSnapshots, this, executor);
+		executor.execute(() -> keptScreenshots.prune(Instant.now()));
 		forgetTheRetiredDiscordNameSetting();
 		refreshTask = executor.scheduleAtFixedRate(
 			() -> refreshRemoteConfig().thenRun(this::retryPendingPosts), 0, CONFIG_REFRESH_MINUTES, TimeUnit.MINUTES);
@@ -292,16 +317,17 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			configChangeRefresh = null;
 		}
 		botClient.cancelRetries();
+		screenshotService.shutDown();
 		remoteConfigService.refresh(null);
 		pendingCompletions.clear();
 		recentTimes.clear();
 		recentPersonalBests.clear();
-		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
 		caJudgementPending = false;
 		pbJudgementPending = false;
 		lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
+		coxTeamSizeUntilLeft = 0;
 		statusCheckPending = false;
 		caSnapshotPending = false;
 		pbSnapshotPending = false;
@@ -325,6 +351,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		botClient.cancelRetries();
 		blockersSaid.clear();
 		postingBlockedLogged = false;
+		noDropTaskLogged = false;
+		blockedDropLogged = false;
 		if (CLAN_CONFIG_KEYS.contains(event.getKey()))
 		{
 			clanConfigChanged.set(true);
@@ -406,11 +434,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private void scheduleLoginChecks()
 	{
 		postingBlockedLogged = false;
+		noDropTaskLogged = false;
+		blockedDropLogged = false;
 		blockersSaid.clear();
 		statusCheckPending = true;
 		caSnapshotPending = true;
 		pbSnapshotPending = true;
-		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
 		caJudgementPending = false;
@@ -420,6 +449,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		thresholdCheckPending = true;
 		setupWarningPending = true;
 		loginTick = client.getTickCount();
+		gameViewWatch.onLogin();
 		mainGameWorld = MainGameWorld.sharesMainGameProgress(client.getWorldType());
 	}
 
@@ -463,6 +493,15 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			thresholdCheckPending = true;
 		}
+		if (leftChambersOfXeric(event))
+		{
+			coxTeamSizeUntilLeft = 0;
+		}
+	}
+
+	private static boolean leftChambersOfXeric(VarbitChanged event)
+	{
+		return event.getVarbitId() == VarbitID.RAIDS_CLIENT_INDUNGEON && event.getValue() == 0;
 	}
 
 	private static boolean changesProgressStatus(VarbitChanged event)
@@ -480,6 +519,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	public void onScriptPreFired(ScriptPreFired event)
 	{
 		collectionLogCapture.onScriptPreFired(event);
+	}
+
+	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent event)
+	{
+		screenshotService.onScriptCallbackEvent(event);
 	}
 
 	@Subscribe
@@ -528,6 +573,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		});
 		Optional<String> raidTrigger = raidCompletionDetector.detect(message).filter(this::notSwitchedOff);
 		raidTrigger.ifPresent(trigger -> queueCompletion(trigger, killCount));
+		raidTrigger.filter(this::knowsCoxTeamSize).ifPresent(trigger -> coxTeamSizeUntilLeft = lastRaidTeamSize);
 		Optional<String> clogItem = collectionLogDetector.detect(message);
 		clogItem.ifPresent(this::handleCollectionLog);
 		clogItem.ifPresent(this::reportCollectionLogItem);
@@ -546,7 +592,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			|| clogItem.isPresent() || achievement.isPresent() || personalTrigger.isPresent();
 		if (!recognized && looksTaskRelated(message))
 		{
-			log.info("Unrecognized game message that may belong to a clan task: {}", Text.removeTags(message));
+			log.debug("Unrecognized game message that may belong to a clan task: {}", Text.removeTags(message));
 		}
 	}
 
@@ -598,7 +644,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 
 		int tick = client.getTickCount();
-		if (thresholdCheckPending && tick - loginTick >= BASELINE_DELAY_TICKS && remoteConfigService.current() != null)
+		gameViewWatch.onTick(tick);
+		if (thresholdCheckDue(tick))
 		{
 			thresholdCheckPending = false;
 			checkThresholdTasks();
@@ -618,11 +665,24 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				.filter(best -> Math.abs(best.getTick() - pending.getTick()) <= COMPLETION_DELAY_TICKS)
 				.map(TickedPersonalBest::getBest)
 				.collect(Collectors.toList());
+			rememberToaTotalBest(pending.getTrigger(), bests);
 			reportPersonalBests(pending.getTrigger(), bests);
 		}
 		recentTimes.removeIf(time -> tick - time.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		recentPersonalBests.removeIf(best -> tick - best.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		reportActivity(tick);
+	}
+
+	private boolean thresholdCheckDue(int tick)
+	{
+		return thresholdCheckPending && tick - loginTick >= BASELINE_DELAY_TICKS && gameViewWatch.shown(tick)
+			&& remoteConfigService.current() != null;
+	}
+
+	private boolean welcomeScreenOpen()
+	{
+		Widget welcomeScreen = client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE);
+		return welcomeScreen != null && !welcomeScreen.isHidden();
 	}
 
 	@Value
@@ -631,6 +691,13 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		String trigger;
 		int tick;
 		int killCount;
+	}
+
+	@Value
+	private static class LootMatch
+	{
+		TaskDefinition task;
+		String itemName;
 	}
 
 	@Value
@@ -670,7 +737,10 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				caJudgementPending = true;
 			});
 		}
-		judgeFromGameDataOnceAllowed();
+		if (gameViewWatch.shown(tick))
+		{
+			judgeFromGameDataOnceAllowed();
+		}
 		if (statusCheckPending)
 		{
 			statusCheckPending = false;
@@ -775,7 +845,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 		pbSnapshotPending = false;
-		activityReporter.reportPbSnapshot(target, account(), client.getAccountHash(), personalBestReader.read());
+		long accountHash = client.getAccountHash();
+		activityReporter.reportPbSnapshot(target, account(), accountHash,
+			toaTotalBestStore.withTotalsInsteadOfChallengeTimes(accountHash, personalBestReader.read()));
 		pbJudgementPending = true;
 	}
 
@@ -894,11 +966,25 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			.orElse(-1);
 	}
 
+	// The game's total record is the account's own, so it is remembered whoever was in the team and whether or not
+	// anything may be posted. A seasonal world keeps records apart from the main game, so only main game raids count,
+	// and a raid the clan config switched off never gets here. An unknown team size leaves the record unfiled.
+	private void rememberToaTotalBest(String trigger, List<PersonalBest> bests)
+	{
+		if (!isMainGameToaRaid(trigger))
+		{
+			return;
+		}
+		long accountHash = client.getAccountHash();
+		int teamSize = participantReader.toaTeamSize();
+		bests.stream()
+			.filter(best -> best.getKind() == TimedLine.Kind.TOTAL)
+			.forEach(best -> toaTotalBestStore.rememberIfFaster(accountHash, bossName(trigger), teamSize, best.getBestSeconds()));
+	}
+
 	/**
-	 * Raids: the game keeps a PB per scale, so a new record is reported as such and the current best once per raid
-	 * and login, so the board can pick up times set before the plugin was installed. Bosses: the game keeps one PB
-	 * across scales, so the plugin reports every kill faster than its own memory for that scale, and the game's PB
-	 * once per account with the scale left open.
+	 * Raids: the game keeps a PB per scale, so only a new record is reported. Bosses: the game keeps one PB across
+	 * scales, so the plugin also reports every kill faster than its own memory for that scale.
 	 */
 	private void reportPersonalBests(String trigger, List<PersonalBest> bests)
 	{
@@ -908,17 +994,13 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 		String boss = bossName(trigger);
-		if (teamCannotBeToldFromBystanders(trigger))
+		Optional<List<String>> team = readTeam(trigger);
+		if (team.isEmpty())
 		{
-			log.debug("Personal best at {} not posted: not in an instance, so bystanders cannot be told from the team", boss);
+			log.debug("Personal best at {} not posted: the team cannot be told", boss);
 			return;
 		}
-		List<String> party = soloByTheGamesCount() ? List.of(account()) : participantReader.read(trigger);
-		if (partyOnlyPartlyRead(trigger, party))
-		{
-			log.debug("Personal best at {} not posted: team size {} but only {} found, cannot verify the clan check", boss, gamesTeamSize(trigger), party);
-			return;
-		}
+		List<String> party = team.get();
 		if (!membershipChecker.allMembers(client.getClanSettings(), remoteConfig.getClanName(), party))
 		{
 			log.debug("Personal best at {} not posted: only clan teams count, party was {}", boss, party);
@@ -938,16 +1020,11 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	private void reportRaidBests(BotTarget target, String boss, List<PersonalBest> bests, int teamSize, List<String> party)
 	{
-		boolean firstReportThisLogin = bossesReportedThisLogin.add(boss);
 		for (PersonalBest best : bests)
 		{
 			if (best.isNewRecord())
 			{
 				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.NEW_RECORD);
-			}
-			else if (firstReportThisLogin)
-			{
-				postBest(target, boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), teamSize, party, PersonalBestClaim.CURRENT);
 			}
 		}
 	}
@@ -965,13 +1042,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				postBest(target, boss, TimeFormat.of(run), best.getKind(), teamSize, party,
 					best.isNewRecord() ? PersonalBestClaim.NEW_RECORD : PersonalBestClaim.FASTEST_AT_SCALE);
 			}
-			if (gameBestStillUnreported(accountHash, boss, best))
-			{
-				scaleBestStore.markGameBestReported(accountHash, boss);
-				Account account = playingAccount();
-				activityReporter.send(target, account.stamp(
-					activityFormatter.currentBossBest(account.getName(), boss, TimeFormat.of(best.getBestSeconds()), best.getKind(), Instant.now())), null);
-			}
 		}
 	}
 
@@ -980,23 +1050,35 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return best.isNewRecord() || seasonBests.isFasterThanStored(accountHash, boss, best.getKind(), teamSize, best.getRunSeconds());
 	}
 
-	private boolean gameBestStillUnreported(long accountHash, String boss, PersonalBest best)
-	{
-		return !best.isNewRecord() && !scaleBestStore.isGameBestReported(accountHash, boss);
-	}
-
 	private void postBest(BotTarget target, String boss, String time, TimedLine.Kind kind, int teamSize, List<String> party,
 		PersonalBestClaim claim)
 	{
 		Account account = playingAccount();
 		PostPayload payload = account.stamp(
 			activityFormatter.personalBest(account.getName(), boss, time, kind, teamSize, party, claim, Instant.now()));
-		if (claim == PersonalBestClaim.CURRENT)
-		{
-			activityReporter.send(target, payload, null);
-			return;
-		}
 		screenshotService.capture(png -> activityReporter.send(target, payload, png));
+	}
+
+	/** The whole team behind a kill or a loot, outsiders included, or empty when it cannot be told. */
+	private Optional<List<String>> readTeam(String trigger)
+	{
+		if (teamCannotBeToldFromBystanders(trigger))
+		{
+			log.debug("Team at {} unknown: not in an instance, so bystanders cannot be told from the team", bossName(trigger));
+			return Optional.empty();
+		}
+		List<String> party = soloByTheGamesCount() ? List.of(account()) : participantReader.read(trigger);
+		if (teamNotFullyRead(trigger, party))
+		{
+			log.debug("Team at {} unknown: team size {} but only {} found, cannot verify the clan check", bossName(trigger), gamesTeamSize(trigger), party);
+			return Optional.empty();
+		}
+		return Optional.of(party);
+	}
+
+	private boolean teamNotFullyRead(String trigger, List<String> party)
+	{
+		return party.isEmpty() || partyOnlyPartlyRead(trigger, party);
 	}
 
 	/**
@@ -1055,10 +1137,17 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return party.size() < gamesTeamSize(trigger);
 	}
 
-	/** The team size the game itself states, from the chat line or the party slots, or 0 when it states none. */
+	/**
+	 * The team size the game itself states, from the chat line or the party slots, or 0 when it states none. Chambers
+	 * of Xeric states it only in its completion message, so it is kept for the reward chest until the raid is left.
+	 */
 	private int gamesTeamSize(String trigger)
 	{
-		return knowsCoxTeamSize(trigger) ? lastRaidTeamSize : participantReader.gamesTeamSize(trigger);
+		if (isChambersOfXeric(trigger))
+		{
+			return knowsTeamSizeFromChat() ? lastRaidTeamSize : coxTeamSizeUntilLeft;
+		}
+		return participantReader.gamesTeamSize(trigger);
 	}
 
 	private static String bossName(String trigger)
@@ -1086,6 +1175,11 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private static boolean isChambersOfXeric(String trigger)
 	{
 		return trigger.startsWith(Triggers.raid("Chambers of Xeric"));
+	}
+
+	private boolean isMainGameToaRaid(String trigger)
+	{
+		return trigger.startsWith(Triggers.raid("Tombs of Amascut")) && onMainGameWorld();
 	}
 
 	private void handleCompletion(String trigger, List<TimedLine> times, int killCount)
@@ -1419,7 +1513,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
 		Player localPlayer = client.getLocalPlayer();
-		if (!canPost() || remoteConfig == null || localPlayer == null)
+		if (remoteConfig == null || localPlayer == null)
 		{
 			return;
 		}
@@ -1428,24 +1522,103 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		List<TaskDefinition> lootTasks = taskMatcher.byTrigger(remoteConfig, Triggers.LOOT).stream()
 			.filter(this::notYetPosted)
 			.collect(Collectors.toList());
-		if ((dropTasks.isEmpty() && lootTasks.isEmpty())
-			|| !membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName()))
+		if (dropTasks.isEmpty())
 		{
-			log.debug("Ignoring loot from {}: no loot task or not in the configured clan", source);
+			logNoDropTaskOnce();
+		}
+		if (noTaskJudgesLoot(dropTasks, lootTasks))
+		{
+			log.debug("Ignoring loot from {}: no loot task", source);
 			return;
 		}
 
 		List<PricedItem> pricedItems = items.stream().map(this::price).collect(Collectors.toList());
+		List<DropJudgement> judgements = dropTasks.stream()
+			.map(task -> dropEvaluator.evaluate(pricedItems, task))
+			.collect(Collectors.toList());
+		List<ValuableDrop> drops = judgements.stream()
+			.flatMap(judgement -> judgement.getDrops().stream())
+			.collect(Collectors.toList());
+		Set<String> postedItems = drops.stream().map(ValuableDrop::getItemName).collect(Collectors.toSet());
+		judgements.stream()
+			.flatMap(judgement -> judgement.getSkipped().stream())
+			.filter(skipped -> !postedItems.contains(skipped.getItemName()))
+			.distinct()
+			.forEach(this::logValuableDropNotPosted);
+		Optional<String> clanPostingBlocker = clanPostingBlocker(remoteConfig);
+		if (clanPostingBlocker.isPresent())
+		{
+			logBlockedDropOncePerLogin(drops, clanPostingBlocker.get());
+			log.debug("Ignoring loot from {}: {}", source, clanPostingBlocker.get());
+			return;
+		}
+
+		List<LootMatch> lootMatches = lootMatches(lootTasks, source, pricedItems);
+		Optional<ClanTeam> team = teamMatters(drops, lootMatches) ? clanTeamAt(source, remoteConfig) : Optional.empty();
 		Instant completedAt = Instant.now();
 		String account = account();
 		List<PostPayload> posts = new ArrayList<>();
-		for (TaskDefinition task : dropTasks)
+		for (ValuableDrop drop : drops)
 		{
-			for (ValuableDrop drop : dropEvaluator.evaluate(pricedItems, task))
+			posts.add(team
+				.map(clanTeam -> messageFormatter.buildDrop(account, drop, source, clanTeam, completedAt))
+				.orElseGet(() -> messageFormatter.buildDrop(account, drop, source, completedAt)));
+		}
+		for (LootMatch match : lootMatches)
+		{
+			TaskDefinition task = match.getTask();
+			if (lacksTheClanTeamItNeeds(task, team))
 			{
-				posts.add(messageFormatter.buildDrop(account, drop, source, completedAt));
+				log.debug("Not posted {} from {}: only an all-clan team counts, and this team was not one or could not be read", task.getName(), source);
+				continue;
+			}
+			posts.add(messageFormatter.buildItemTask(account, task, match.getItemName(), source, clanPartyFor(task, team), completedAt));
+			if (task.isOnce())
+			{
+				markCompleted(task);
 			}
 		}
+		if (!posts.isEmpty())
+		{
+			postWithScreenshot(botTarget(), posts);
+		}
+	}
+
+	private static boolean noTaskJudgesLoot(List<TaskDefinition> dropTasks, List<TaskDefinition> lootTasks)
+	{
+		return dropTasks.isEmpty() && lootTasks.isEmpty();
+	}
+
+	// The blocker is the same for every drop until the settings change, so one example per login is enough
+	private void logBlockedDropOncePerLogin(List<ValuableDrop> drops, String blocker)
+	{
+		drops.stream().findFirst().filter(drop -> !blockedDropLogged).ifPresent(drop ->
+		{
+			blockedDropLogged = true;
+			logValuableDropNotPosted(new SkippedDrop(drop.getItemName(), drop.getValue(), blocker));
+		});
+	}
+
+	// At INFO so the reason reaches the member's client.log; only items at or above minValue get here
+	private void logValuableDropNotPosted(SkippedDrop skipped)
+	{
+		log.info("Valuable drop {} ({} gp) not posted: {}", skipped.getItemName(),
+			String.format(Locale.ROOT, "%,d", skipped.getValue()), skipped.getReason());
+	}
+
+	private void logNoDropTaskOnce()
+	{
+		if (!noDropTaskLogged)
+		{
+			noDropTaskLogged = true;
+			log.info("No DROP task in the clan config, so valuable drops are not posted");
+		}
+	}
+
+	// A one-time task is completed by its first matching item, a repeatable task by every one
+	private List<LootMatch> lootMatches(List<TaskDefinition> lootTasks, String source, List<PricedItem> pricedItems)
+	{
+		List<LootMatch> matches = new ArrayList<>();
 		for (TaskDefinition task : lootTasks)
 		{
 			for (PricedItem item : pricedItems)
@@ -1454,18 +1627,44 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				{
 					continue;
 				}
-				posts.add(messageFormatter.buildItemTask(account, task, item.getName(), source, completedAt));
+				matches.add(new LootMatch(task, item.getName()));
 				if (task.isOnce())
 				{
-					markCompleted(task);
 					break;
 				}
 			}
 		}
-		if (!posts.isEmpty())
-		{
-			postWithScreenshot(botTarget(), posts);
-		}
+		return matches;
+	}
+
+	private static boolean teamMatters(List<ValuableDrop> drops, List<LootMatch> lootMatches)
+	{
+		return !drops.isEmpty() || lootMatches.stream().anyMatch(match -> match.getTask().isClanOnly());
+	}
+
+	private Optional<ClanTeam> clanTeamAt(String source, RemoteConfig remoteConfig)
+	{
+		return readTeam(lootTrigger(source))
+			.map(team -> membershipChecker.team(client.getClanSettings(), remoteConfig.getClanName(), team));
+	}
+
+	/**
+	 * A raid chest is judged by the raid's party, any other source like a boss kill: the players in the instance,
+	 * or nobody on an open world, where bystanders cannot be told from the team.
+	 */
+	private static String lootTrigger(String source)
+	{
+		return RAID_CHEST_SOURCES.contains(source) ? Triggers.raid(source) : Triggers.kill(source);
+	}
+
+	private static boolean lacksTheClanTeamItNeeds(TaskDefinition task, Optional<ClanTeam> team)
+	{
+		return task.isClanOnly() && !team.map(ClanTeam::isWholeTeamInClan).orElse(false);
+	}
+
+	private static List<String> clanPartyFor(TaskDefinition task, Optional<ClanTeam> team)
+	{
+		return team.filter(clanTeam -> task.isClanOnly()).map(ClanTeam::getClanMembers).orElse(List.of());
 	}
 
 	private PricedItem price(ItemStack item)
@@ -1475,8 +1674,14 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return new PricedItem(
 			itemManager.getItemComposition(itemId).getName(),
 			item.getQuantity(),
-			itemManager.getItemPrice(itemId),
+			geGuidePrice(itemId),
 			dropped.isStackable());
+	}
+
+	// Matches the in-game drop broadcast, whatever price source the member set in RuneLite
+	private long geGuidePrice(int itemId)
+	{
+		return itemManager.getItemPriceWithSource(itemId, false);
 	}
 
 	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
@@ -1510,9 +1715,29 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	private boolean canPostForClan()
 	{
-		RemoteConfig remoteConfig = remoteConfigService.current();
-		return canPost() && remoteConfig != null && client.getLocalPlayer() != null
-			&& membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName());
+		return clanPostingBlocker(remoteConfigService.current()).isEmpty();
+	}
+
+	private Optional<String> clanPostingBlocker(RemoteConfig remoteConfig)
+	{
+		List<String> blockers = postingBlockers();
+		if (!canPost(blockers))
+		{
+			return Optional.of("posting blocked (" + String.join(", ", blockers) + ")");
+		}
+		if (remoteConfig == null)
+		{
+			return Optional.of("clan config not loaded");
+		}
+		if (client.getLocalPlayer() == null)
+		{
+			return Optional.of("not logged in");
+		}
+		if (!membershipChecker.isClan(client.getClanSettings(), remoteConfig.getClanName()))
+		{
+			return Optional.of("not in the configured clan " + remoteConfig.getClanName());
+		}
+		return Optional.empty();
 	}
 
 	/**
@@ -1521,15 +1746,48 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	 */
 	private boolean canPost()
 	{
-		boolean canPost = config.enabled() && hasSecretSafeBotUrl() && !clanToken().isEmpty() && profileSyncsToAccount()
-			&& onMainGameWorld();
-		if (!canPost && !postingBlockedLogged)
+		return canPost(postingBlockers());
+	}
+
+	private boolean canPost(List<String> blockers)
+	{
+		if (blockedButNotYetSaid(blockers))
 		{
 			postingBlockedLogged = true;
-			log.info("Posting blocked: enabled={}, bot URL usable={}, clan token set={}, profile synced={}, main game world={}",
-				config.enabled(), hasSecretSafeBotUrl(), !clanToken().isEmpty(), profileSyncsToAccount(), onMainGameWorld());
+			log.info("Posting blocked: {}", String.join(", ", blockers));
 		}
-		return canPost;
+		return blockers.isEmpty();
+	}
+
+	private boolean blockedButNotYetSaid(List<String> blockers)
+	{
+		return !blockers.isEmpty() && !postingBlockedLogged;
+	}
+
+	private List<String> postingBlockers()
+	{
+		List<String> blockers = new ArrayList<>();
+		if (!config.enabled())
+		{
+			blockers.add("plugin turned off");
+		}
+		if (!hasSecretSafeBotUrl())
+		{
+			blockers.add("bot URL not usable");
+		}
+		if (clanToken().isEmpty())
+		{
+			blockers.add("clan token not set");
+		}
+		if (!profileSyncsToAccount())
+		{
+			blockers.add("profile not synced to a RuneLite account");
+		}
+		if (!onMainGameWorld())
+		{
+			blockers.add("not on a main game world");
+		}
+		return blockers;
 	}
 
 	// Posts carry the member's token
@@ -1662,5 +1920,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	SlayClanConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(SlayClanConfig.class);
+	}
+
+	@Provides
+	@Singleton
+	KeptScreenshots provideKeptScreenshots()
+	{
+		return new KeptScreenshots(() -> getPluginDirectory().joinSegment(KEPT_SCREENSHOT_FOLDER));
 	}
 }

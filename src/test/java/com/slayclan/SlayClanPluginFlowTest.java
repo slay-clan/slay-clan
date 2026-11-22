@@ -1,5 +1,9 @@
 package com.slayclan;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.google.gson.Gson;
 import com.slayclan.activity.CollectionLogCapture;
 import com.slayclan.activity.CombatAchievementReader;
@@ -9,6 +13,7 @@ import com.slayclan.config.TaskDefinition;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
+import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.ScreenshotService;
@@ -16,6 +21,7 @@ import com.slayclan.discord.PostPayload;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,16 +52,22 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.PluginManager;
+import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.http.api.item.ItemPrice;
+import net.runelite.http.api.loottracker.LootRecordType;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -69,6 +81,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -83,6 +96,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.slf4j.LoggerFactory;
 
 /**
  * Drives the plugin through game events and checks what reaches Discord. Memory is faked with sets so the
@@ -96,6 +110,8 @@ public class SlayClanPluginFlowTest
 	private static final BotTarget TARGET = new BotTarget(API, TOKEN);
 	private static final String ME = "Clanmate";
 	private static final String OUTSIDER = "Stranger";
+	private static final int HORN_OF_BRAN = 32000;
+	private static final byte[] PLAIN_SCREENSHOT = {1};
 
 	@Mock
 	private Client client;
@@ -118,6 +134,8 @@ public class SlayClanPluginFlowTest
 	@Mock
 	private PendingPostStore pendingPostStore;
 	@Mock
+	private KeptScreenshots keptScreenshots;
+	@Mock
 	private PluginManager pluginManager;
 	@Mock
 	private ConfigManager configManager;
@@ -137,6 +155,7 @@ public class SlayClanPluginFlowTest
 	private SlayClanPlugin plugin;
 
 	private final RemoteConfig remoteConfig = new RemoteConfig();
+	private final ListAppender<ILoggingEvent> pluginLog = new ListAppender<>();
 	private final Set<String> completed = new HashSet<>();
 	private final Set<String> judged = new HashSet<>();
 	private int tick = 100;
@@ -144,6 +163,8 @@ public class SlayClanPluginFlowTest
 	@Before
 	public void setUp()
 	{
+		pluginLog.start();
+		pluginLogger().addAppender(pluginLog);
 		remoteConfig.setClanName("Slay Clan");
 		when(remoteConfigService.current()).thenReturn(remoteConfig);
 		when(remoteConfigService.refresh(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -185,9 +206,14 @@ public class SlayClanPluginFlowTest
 		doAnswer(invocation ->
 		{
 			Consumer<byte[]> onCaptured = invocation.getArgument(0);
-			onCaptured.accept(new byte[]{1});
+			onCaptured.accept(PLAIN_SCREENSHOT);
 			return null;
 		}).when(screenshotService).capture(any());
+		doAnswer(invocation ->
+		{
+			invocation.<Runnable>getArgument(0).run();
+			return null;
+		}).when(executor).execute(any(Runnable.class));
 		when(progressStore.isCompleted(anyString())).thenAnswer(invocation -> completed.contains(invocation.<String>getArgument(0)));
 		doAnswer(invocation -> completed.add(invocation.getArgument(0))).when(progressStore).markCompleted(anyString());
 		doAnswer(invocation -> completed.remove(invocation.<String>getArgument(0))).when(progressStore).clearCompleted(anyString());
@@ -201,6 +227,8 @@ public class SlayClanPluginFlowTest
 	@After
 	public void tearDown()
 	{
+		pluginLogger().detachAppender(pluginLog);
+		pluginLog.stop();
 		plugin.shutDown();
 	}
 
@@ -351,7 +379,7 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
 		ticks(3);
 
-		verify(pendingPostStore).add(any(), any());
+		verify(pendingPostStore).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -638,7 +666,7 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
-	public void reportsTheFirstKillAtAScaleAndTheGamesBestOnceForABoss()
+	public void postsTheFirstKillAtAScaleButNeverTheGamesStoredBestForTheBoss()
 	{
 		tasks();
 		login();
@@ -648,14 +676,12 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(2, bests.size());
+		assertEquals(1, bests.size());
 		Map<String, String> fastest = bests.get(0).getFields();
 		assertEquals("no", fastest.get("New"));
 		assertEquals("1:10", fastest.get("Time"));
 		assertEquals("1", fastest.get("Team size"));
-		Map<String, String> current = bests.get(1).getFields();
-		assertEquals("0:55", current.get("Time"));
-		assertTrue(current.containsKey("Scale"));
+		assertEquals("no", fastest.get("Stored best"));
 
 		chat("Fight duration: <col=ff0000>1:12</col>. Personal best: 0:55");
 		chat("Your Zulrah kill count is: <col=ff0000>11</col>.");
@@ -665,7 +691,23 @@ public class SlayClanPluginFlowTest
 		chat("Your Zulrah kill count is: <col=ff0000>12</col>.");
 		ticks(3);
 
-		assertEquals(2, postedCount("pb"));
+		assertEquals(1, postedCount("pb"));
+	}
+
+	@Test
+	public void postsNothingForARaidWithoutANewRecordEvenAsTheFirstRaidAfterLogin()
+	{
+		tasks();
+		when(clan.findMember("Raidbuddy")).thenReturn(mock(ClanMember.class));
+		when(participantReader.read(anyString())).thenReturn(List.of(ME, "Raidbuddy"));
+		login();
+
+		chat("Tombs of Amascut: Expert Mode challenge completion time: <col=ff0000>28:38</col>. Personal best: 26:43");
+		chat("Tombs of Amascut total completion time: <col=ff0000>31:30.00</col>. Personal best: 29:57.60");
+		chat("Your completed Tombs of Amascut: Expert Mode count is: <col=ff0000>10</col>.");
+		ticks(3);
+
+		assertEquals(0, postedCount("pb"));
 	}
 
 	@Test
@@ -681,8 +723,8 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(3, bests.size());
-		Map<String, String> faster = bests.get(2).getFields();
+		assertEquals(2, bests.size());
+		Map<String, String> faster = bests.get(1).getFields();
 		assertEquals("no", faster.get("New"));
 		assertEquals("5:40", faster.get("Time"));
 	}
@@ -697,7 +739,7 @@ public class SlayClanPluginFlowTest
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>11</col>.");
 		ticks(3);
-		assertEquals(2, postedCount("pb"));
+		assertEquals(1, postedCount("pb"));
 
 		remoteConfig.setPbSeasonStart("2026-11-16");
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
@@ -705,8 +747,8 @@ public class SlayClanPluginFlowTest
 		ticks(3);
 
 		List<PostPayload> bests = posted("pb");
-		assertEquals(3, bests.size());
-		assertEquals("5:57", bests.get(2).getFields().get("Time"));
+		assertEquals(2, bests.size());
+		assertEquals("5:57", bests.get(1).getFields().get("Time"));
 	}
 
 	@Test
@@ -720,14 +762,14 @@ public class SlayClanPluginFlowTest
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>11</col>.");
 		ticks(3);
-		assertEquals(3, postedCount("pb"));
+		assertEquals(2, postedCount("pb"));
 
 		remoteConfig.setPbSeasonStart("");
 		chat("Fight duration: <col=ff0000>5:57</col>. Personal best: 3:09");
 		chat("Your Yama kill count is: <col=ff0000>12</col>.");
 		ticks(3);
 
-		assertEquals(3, postedCount("pb"));
+		assertEquals(2, postedCount("pb"));
 	}
 
 	@Test
@@ -744,6 +786,94 @@ public class SlayClanPluginFlowTest
 		List<PostPayload> snapshots = posted("pb-snapshot");
 		assertEquals(1, snapshots.size());
 		assertTrue(gson.toJson(snapshots.get(0).getEntries()).contains("\"boss\":\"zulrah\""));
+	}
+
+	@Test
+	public void storedBestsSentAfterLoginCarryTheToaTotalRecordInsteadOfRuneLitesChallengeTime()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0, "tombs of amascut expert mode 3 players", 1603.0));
+		when(participantReader.toaTeamSize()).thenReturn(3);
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		login();
+		ticks(6);
+
+		String entries = latestStoredBests();
+		assertTrue(entries.contains("\"boss\":\"zulrah\""));
+		assertFalse(entries.contains("\"boss\":\"tombs of amascut expert mode 3 players\""));
+		assertTrue(entries.contains("{\"boss\":\"tombs of amascut expert mode 3 players total\",\"seconds\":1797.6,\"time\":\"29:57.60\"}"));
+	}
+
+	@Test
+	public void aToaTotalRecordOnASeasonalWorldIsNotSentWithTheMainGameStoredBests()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(3);
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS, WorldType.SEASONAL));
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
+		login();
+		ticks(6);
+
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aToaTotalRecordIsNotSentWhenTheGameShowsNoPartyToTellTheTeamSize()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(0);
+		login();
+
+		finishExpertToaWithATotalRecordOf2957();
+		login();
+		ticks(6);
+
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aOneTimeToaTaskIsStillJudgedFromRuneLitesStoredBestThatTheStoredBestsSentLeaveOut()
+	{
+		TaskDefinition task = task("desert-dash", "RAID:Tombs of Amascut: Expert Mode", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		storedPersonalBest("tombs of amascut expert mode solo", 1400.0);
+
+		login();
+		ticks(6);
+
+		assertEquals(List.of("Desert Dash"), postedTasks());
+		assertFalse(latestStoredBests().contains("tombs of amascut"));
+	}
+
+	@Test
+	public void aNewToaTotalRecordSendsTheStoredBestsAgainAtTheNextLogin()
+	{
+		tasks();
+		storedPersonalBests(Map.of("zulrah", 55.0));
+		when(participantReader.toaTeamSize()).thenReturn(1);
+		login();
+		ticks(6);
+		login();
+		ticks(6);
+		assertEquals(1, postedCount("pb-snapshot"));
+
+		chat("Tombs of Amascut total completion time: <col=ff0000>25:00</col> (new personal best)");
+		chat("Your completed Tombs of Amascut count is: <col=ff0000>10</col>.");
+		ticks(3);
+		login();
+		ticks(6);
+
+		List<PostPayload> snapshots = posted("pb-snapshot");
+		assertEquals(2, snapshots.size());
+		assertTrue(gson.toJson(snapshots.get(1).getEntries()).contains("\"boss\":\"tombs of amascut solo total\""));
 	}
 
 	@Test
@@ -1103,7 +1233,7 @@ public class SlayClanPluginFlowTest
 
 		verify(client, times(1)).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Token not accepted."), isNull());
-		verify(pendingPostStore).add(any(), any());
+		verify(pendingPostStore).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -1118,7 +1248,7 @@ public class SlayClanPluginFlowTest
 
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Slay Clan: Not recorded: already completed."), isNull());
-		verify(pendingPostStore, never()).add(any(), any());
+		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -1190,6 +1320,108 @@ public class SlayClanPluginFlowTest
 		ticks(6);
 
 		assertEquals(List.of("Serpent Sprint"), postedTasks());
+	}
+
+	@Test
+	public void aTaskJudgedAtLoginIsPostedOnlyAfterTheWelcomeScreenIsClosed()
+	{
+		Widget welcomeScreen = mock(Widget.class);
+		when(client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE)).thenReturn(welcomeScreen);
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(30);
+		assertEquals(List.of(), postedTasks());
+
+		when(client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE)).thenReturn(null);
+		ticks(3);
+
+		assertEquals(List.of("No Fluke"), postedTasks());
+	}
+
+	@Test
+	public void aTaskJudgedFromTheCombatAchievementListIsPostedWithAScreenshot()
+	{
+		TaskDefinition task = task("no-fluke", "CA:It Wasn't a Fluke", null, 0, false);
+		task.setOnce(true);
+		tasks(task);
+		completedCombatAchievement(398, "It Wasn't a Fluke");
+
+		login();
+		ticks(6);
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void aTaskJudgedFromAStoredPersonalBestIsPostedWithAScreenshot()
+	{
+		TaskDefinition task = task("serpent-sprint", "KILL:Zulrah", "1:00", 0, false);
+		task.setOnce(true);
+		tasks(task);
+		storedPersonalBest("zulrah", 43.8);
+
+		login();
+		ticks(6);
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void aCollectionLogTaskJudgedOnTheOpenedLogIsPostedWithAScreenshot()
+	{
+		TaskDefinition petHoarder = withItems(task("pet-hoarder", "CLOG", null, 0, false), "Vorki", "Olmlet", "Pet snakeling");
+		petHoarder.setRequired(2);
+		petHoarder.setOnce(true);
+		tasks(petHoarder);
+		login();
+
+		openCollectionLogWith("Olmlet", "Bandos chestplate", "Pet snakeling");
+		ticks(3);
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void anEquipmentTaskIsPostedWithAScreenshot()
+	{
+		tasks(withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape"));
+		wearing("Quest point cape");
+		login();
+
+		ticks(6);
+
+		assertArrayEquals(PLAIN_SCREENSHOT, screenshotBytesOfTheTaskPost());
+	}
+
+	@Test
+	public void severalTasksJudgedAtOnceAreAllPostedWithOneScreenshot()
+	{
+		TaskDefinition cape = withItems(task("quest-completed", "EQUIP", null, 0, false), "Quest point cape");
+		TaskDefinition boots = withItems(task("dragon-feet", "EQUIP", null, 0, false), "Dragon boots");
+		tasks(cape, boots);
+		wearing("Quest point cape", "Dragon boots");
+		login();
+
+		ticks(6);
+
+		assertEquals(List.of("Quest Completed", "Dragon Feet"), postedTasks());
+		verify(screenshotService, times(1)).capture(any());
+	}
+
+	@Test
+	public void anUndeliveredTaskPostIsKeptTogetherWithItsScreenshot()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(pendingPostStore).add(any(), any(), eq(true));
 	}
 
 	@Test
@@ -1272,9 +1504,29 @@ public class SlayClanPluginFlowTest
 
 	private void storedPersonalBest(String boss, double seconds)
 	{
+		storedPersonalBests(Map.of(boss, seconds));
+	}
+
+	private void finishExpertToaWithATotalRecordOf2957()
+	{
+		chat("Tombs of Amascut: Expert Mode challenge completion time: <col=ff0000>28:38</col>. Personal best: 26:43");
+		chat("Tombs of Amascut total completion time: <col=ff0000>31:30.00</col>. Personal best: 29:57.60");
+		chat("Your completed Tombs of Amascut: Expert Mode count is: <col=ff0000>10</col>.");
+		ticks(3);
+	}
+
+	private String latestStoredBests()
+	{
+		List<PostPayload> snapshots = posted("pb-snapshot");
+		return gson.toJson(snapshots.get(snapshots.size() - 1).getEntries());
+	}
+
+	private void storedPersonalBests(Map<String, Double> secondsByBoss)
+	{
 		when(configManager.getRSProfileKey()).thenReturn("rsprofile.abc");
-		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(List.of(boss));
-		when(configManager.getRSProfileConfiguration("personalbest", boss, double.class)).thenReturn(seconds);
+		when(configManager.getRSProfileConfigurationKeys("personalbest", "rsprofile.abc", "")).thenReturn(new ArrayList<>(secondsByBoss.keySet()));
+		secondsByBoss.forEach((boss, seconds) ->
+			when(configManager.getRSProfileConfiguration("personalbest", boss, double.class)).thenReturn(seconds));
 	}
 
 	private static VarbitChanged varbitChanged(int varbitId, int varpId)
@@ -1386,6 +1638,21 @@ public class SlayClanPluginFlowTest
 		return posted().stream().filter(payload -> payload.getKind().equals(kind)).collect(Collectors.toList());
 	}
 
+	private byte[] screenshotBytesOfTheTaskPost()
+	{
+		ArgumentCaptor<PostPayload> payloads = ArgumentCaptor.forClass(PostPayload.class);
+		ArgumentCaptor<byte[]> screenshots = ArgumentCaptor.forClass(byte[].class);
+		verify(botClient, atLeast(1)).send(eq(TARGET), payloads.capture(), screenshots.capture());
+		for (int i = 0; i < payloads.getAllValues().size(); i++)
+		{
+			if (payloads.getAllValues().get(i).getKind().equals("task"))
+			{
+				return screenshots.getAllValues().get(i);
+			}
+		}
+		throw new AssertionError("no task was posted");
+	}
+
 	private List<PostPayload> posted()
 	{
 		ArgumentCaptor<PostPayload> payloads = ArgumentCaptor.forClass(PostPayload.class);
@@ -1395,12 +1662,395 @@ public class SlayClanPluginFlowTest
 
 	private static PostPayload payload(String task)
 	{
-		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, false, null);
+		return new PostPayload("task", "0123456789abcdef", ME, null, "2026-10-10T18:00:00Z", Map.of("Task", task), null, null);
 	}
 
 	private static String judgementKey(String source, long accountHash)
 	{
 		return source + "." + accountHash;
+	}
+
+	@Test
+	public void dropPostShowsTheGrandExchangeGuidePriceLikeTheGameBroadcastNotTheWikiPrice()
+	{
+		TaskDefinition drops = task("drops", "DROP", null, 0, false);
+		drops.setMinValue(500_000);
+		drops.setValuePerPoint(1_000_000);
+		tasks(drops);
+		ItemComposition horn = mock(ItemComposition.class);
+		when(horn.getName()).thenReturn("Horn of Bran");
+		when(itemManager.getItemComposition(HORN_OF_BRAN)).thenReturn(horn);
+		when(itemManager.canonicalize(HORN_OF_BRAN)).thenReturn(HORN_OF_BRAN);
+		when(itemManager.getItemPrice(HORN_OF_BRAN)).thenReturn(193_000_000L);
+		when(itemManager.getItemPriceWithSource(HORN_OF_BRAN, false)).thenReturn(199_000_000L);
+
+		plugin.onLootReceived(new LootReceived("Bran", 0, LootRecordType.NPC, List.of(new ItemStack(HORN_OF_BRAN, 1)), 1, null));
+
+		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), payload.capture(), (byte[]) any());
+		assertEquals("199", payload.getValue().getFields().get("Value in M"));
+		assertEquals("199", payload.getValue().getFields().get("Points"));
+	}
+
+	@Test
+	public void raidPurpleWithClanMatesIsPostedNamingTheClanParty()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"));
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Clan Purple"), postedTasks());
+		assertEquals("Clanmate, Raidbuddy", postedField("Party"));
+	}
+
+	@Test
+	public void raidPurpleWithClanMatesIsNotPostedWhenAnOutsiderWasInTheRaid()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Scythe of vitur*"));
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Theatre of Blood", "Scythe of vitur (uncharged)", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void raidPurpleWithClanMatesIsNotPostedWhenPartOfTheRaidPartyCannotBeRead()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Tome of fire"));
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
+
+		loot("Fractured Archive", "Tome of fire", 1_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void clanOnlyLootTaskIsNotPostedFromAnOpenWorldBossSinceBystandersCannotBeToldFromTheTeam()
+	{
+		tasks(withItems(task("clan-loot", "LOOT", null, 0, true), "Dragon pickaxe"));
+		when(worldView.isInstance()).thenReturn(false);
+
+		loot("Callisto", "Dragon pickaxe", 5_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+	}
+
+	@Test
+	public void clanOnlyLootTaskAtAnInstancedBossAloneIsPosted()
+	{
+		tasks(withItems(task("clan-loot", "LOOT", null, 0, true), "Tanzanite fang"));
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		assertEquals(List.of("Clan Loot"), postedTasks());
+	}
+
+	@Test
+	public void lootTaskOpenToAnyTeamIsPostedWithoutAPartyAlsoWithAnOutsiderInTheRaid()
+	{
+		tasks(withItems(task("any-purple", "LOOT", null, 0, false), "Twisted bow"));
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Any Purple"), postedTasks());
+		assertNull(postedField("Party"));
+	}
+
+	@Test
+	public void dropFromARaidOfClanMembersOnlyIsMarkedAsAClanTeamWithEveryoneInTheParty()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Tombs of Amascut", "Tumeken's shadow (uncharged)", 1_000_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals("Clanmate, Raidbuddy", drop.get("Party"));
+		assertEquals("yes", drop.get("Clan team"));
+	}
+
+	@Test
+	public void dropFromARaidWithAnOutsiderIsNotAClanTeamAndNamesOnlyTheClanMembers()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy", OUTSIDER);
+
+		loot("Theatre of Blood", "Scythe of vitur (uncharged)", 1_000_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals("Clanmate, Raidbuddy", drop.get("Party"));
+		assertEquals("no", drop.get("Clan team"));
+	}
+
+	@Test
+	public void dropFromAnOpenWorldBossLeavesOutTheTeamSinceBystandersCannotBeToldFromIt()
+	{
+		tasks(dropsFrom500k());
+		when(worldView.isInstance()).thenReturn(false);
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Callisto", "Dragon pickaxe", 5_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void coxChestOpenedLongAfterTheRaidWithFewerNamesThanItsTeamSizeNeitherPostsTheClanPurpleNorJudgesTheTeam()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"), dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		chat("Team size: <col=ff0000>3 players</col> Duration:</col> <col=ff0000>30:00.00</col> Personal best: 14:00");
+		chat("Your completed Chambers of Xeric count is: <col=ff0000>5</col>.");
+		ticks(20);
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+		assertNull(postedDrop().get("Clan team"));
+	}
+
+	@Test
+	public void toaChestWithFewerNamesThanFilledPartySlotsNeitherPostsTheClanPurpleNorJudgesTheTeam()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Tumeken's shadow*"), dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Tombs of Amascut")).thenReturn(3);
+
+		loot("Tombs of Amascut", "Tumeken's shadow (uncharged)", 1_000_000_000L);
+
+		assertEquals(List.of(), postedTasks());
+		assertNull(postedDrop().get("Clan team"));
+	}
+
+	@Test
+	public void dropWhereNoPlayerCanBeFoundLeavesOutTheTeam()
+	{
+		tasks(dropsFrom500k());
+		when(participantReader.read(anyString())).thenReturn(List.of());
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void soloDropAtAnInstancedBossNamesTheMemberAndCountsAsAClanTeam()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Zulrah", "Tanzanite fang", 2_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals(ME, drop.get("Party"));
+		assertEquals("yes", drop.get("Clan team"));
+	}
+
+	@Test
+	public void fracturedArchiveDropWithPartOfThePartyUnreadLeavesOutTheTeam()
+	{
+		tasks(dropsFrom500k());
+		raidPartyOf(ME, "Raidbuddy");
+		when(participantReader.gamesTeamSize("RAID:Fractured Archive")).thenReturn(3);
+
+		loot("Fractured Archive", "Tome of fire", 1_000_000L);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+	}
+
+	@Test
+	public void raidChestIsJudgedByTheRaidPartyEvenWhenTheGameDoesNotReportAnInstance()
+	{
+		tasks(withItems(task("clan-purple", "LOOT", null, 0, true), "Twisted bow"), dropsFrom500k());
+		when(worldView.isInstance()).thenReturn(false);
+		raidPartyOf(ME, "Raidbuddy");
+
+		loot("Chambers of Xeric", "Twisted bow", 1_000_000_000L);
+
+		assertEquals(List.of("Clan Purple"), postedTasks());
+		assertEquals("yes", postedDrop().get("Clan team"));
+		verify(participantReader, atLeast(1)).read("RAID:Chambers of Xeric");
+	}
+
+	private void raidPartyOf(String... names)
+	{
+		for (String name : names)
+		{
+			if (!name.equals(OUTSIDER))
+			{
+				when(clan.findMember(name)).thenReturn(mock(ClanMember.class));
+			}
+		}
+		when(participantReader.read(anyString())).thenReturn(List.of(names));
+	}
+
+	@Test
+	public void valuableStackableDropIsNotPostedAndTheLogSaysStackablesDoNotCount()
+	{
+		tasks(dropsFrom500k());
+
+		lootStackable("Vorkath", "Venator shard", 14_882_505L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Venator shard (14,882,505 gp) not posted: stackable items do not count"), valuableDropLogLines());
+	}
+
+	@Test
+	public void valuableDropIsPostedWithoutALogLineAboutIt()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(1, posted("drop").size());
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void dropBelowTheMinimumValueIsNotPostedAndLeavesNoLogLine()
+	{
+		tasks(dropsFrom500k());
+
+		loot("Vorkath", "Rune platebody", 38_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void valuableDropWithoutAClanTokenIsNotPostedAndTheLogNamesTheMissingToken()
+	{
+		tasks(dropsFrom500k());
+		when(config.clanToken()).thenReturn("");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Dragonbone necklace (5,000,000 gp) not posted: posting blocked (clan token not set)"),
+			valuableDropLogLines());
+	}
+
+	@Test
+	public void secondValuableDropWithoutAClanTokenInTheSameLoginLeavesNoFurtherLogLine()
+	{
+		tasks(dropsFrom500k());
+		when(config.clanToken()).thenReturn("");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+		loot("Vorkath", "Draconic visage", 3_000_000L);
+
+		assertEquals(1, valuableDropLogLines().size());
+	}
+
+	@Test
+	public void valuableDropWithThePluginTurnedOffLeavesNoLogLine()
+	{
+		tasks(dropsFrom500k());
+		when(remoteConfigService.current()).thenReturn(null);
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void stackableDropPostedByAnotherDropTaskIsNotLoggedAsLeftOut()
+	{
+		TaskDefinition stackablesToo = dropsFrom500k();
+		stackablesToo.setId("drops-with-stackables");
+		stackablesToo.setIncludeStackable(true);
+		tasks(dropsFrom500k(), stackablesToo);
+
+		lootStackable("Vorkath", "Venator shard", 14_882_505L);
+
+		assertEquals(1, posted("drop").size());
+		assertEquals(List.of(), valuableDropLogLines());
+	}
+
+	@Test
+	public void lootWithoutADropTaskInTheClanConfigSaysSoOnceInTheLog()
+	{
+		tasks();
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(1, pluginLog.list.stream()
+			.filter(event -> event.getFormattedMessage().equals("No DROP task in the clan config, so valuable drops are not posted"))
+			.count());
+	}
+
+	@Test
+	public void valuableDropOutsideTheConfiguredClanIsNotPostedAndTheLogSaysSo()
+	{
+		tasks(dropsFrom500k());
+		when(clan.getName()).thenReturn("Other Clan");
+
+		loot("Vorkath", "Dragonbone necklace", 5_000_000L);
+
+		assertEquals(List.of(), posted("drop"));
+		assertEquals(List.of("Valuable drop Dragonbone necklace (5,000,000 gp) not posted: not in the configured clan Slay Clan"),
+			valuableDropLogLines());
+	}
+
+	private List<String> valuableDropLogLines()
+	{
+		return pluginLog.list.stream()
+			.filter(event -> event.getLevel() == Level.INFO)
+			.map(ILoggingEvent::getFormattedMessage)
+			.filter(line -> line.startsWith("Valuable drop"))
+			.collect(Collectors.toList());
+	}
+
+	private static Logger pluginLogger()
+	{
+		return (Logger) LoggerFactory.getLogger(SlayClanPlugin.class);
+	}
+
+	private void lootStackable(String source, String itemName, long price)
+	{
+		loot(source, itemName, price, true);
+	}
+
+	private void loot(String source, String itemName, long price)
+	{
+		loot(source, itemName, price, false);
+	}
+
+	private void loot(String source, String itemName, long price, boolean stackable)
+	{
+		ItemComposition item = mock(ItemComposition.class);
+		when(item.getName()).thenReturn(itemName);
+		when(item.isStackable()).thenReturn(stackable);
+		when(itemManager.getItemComposition(HORN_OF_BRAN)).thenReturn(item);
+		when(itemManager.canonicalize(HORN_OF_BRAN)).thenReturn(HORN_OF_BRAN);
+		when(itemManager.getItemPriceWithSource(HORN_OF_BRAN, false)).thenReturn(price);
+		plugin.onLootReceived(new LootReceived(source, 0, LootRecordType.EVENT, List.of(new ItemStack(HORN_OF_BRAN, 1)), 1, null));
+	}
+
+	private static TaskDefinition dropsFrom500k()
+	{
+		TaskDefinition drops = task("drops", "DROP", null, 0, false);
+		drops.setMinValue(500_000);
+		drops.setValuePerPoint(1_000_000);
+		return drops;
+	}
+
+	private Map<String, String> postedDrop()
+	{
+		List<PostPayload> drops = posted("drop");
+		assertEquals(1, drops.size());
+		return drops.get(0).getFields();
 	}
 
 	private static TaskDefinition task(String id, String trigger, String maxTime, int teamSize, boolean clanOnly)

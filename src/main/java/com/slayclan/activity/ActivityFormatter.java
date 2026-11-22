@@ -91,31 +91,9 @@ public class ActivityFormatter
 		fields.put("Team size", String.valueOf(teamSize));
 		fields.put("Party", String.join(", ", party));
 		fields.put("New", claim.isNewRecord() ? "yes" : "no");
-		return personalBestPayload(account, fields, claim, at);
-	}
-
-	/**
-	 * The game keeps one personal best per boss across team sizes (raids are per size), so a current best reported
-	 * at a later kill may come from another scale than today's party. No team size or party is claimed for it.
-	 */
-	public PostPayload currentBossBest(String account, String boss, String time, TimedLine.Kind kind, Instant at)
-	{
-		Map<String, String> fields = new LinkedHashMap<>();
-		fields.put("Boss", boss);
-		fields.put("Time", time);
-		fields.put("Time type", timeType(kind));
-		fields.put("Scale", "unknown, the game keeps one personal best per boss");
-		fields.put("New", "no");
-		return personalBestPayload(account, fields, PersonalBestClaim.CURRENT, at);
-	}
-
-	// A stored best is reported so the board can be filled in, not because of this kill, so it gets no chat line, and
-	// it is flagged because the bot cannot tell when it was set
-	private static PostPayload personalBestPayload(String account, Map<String, String> fields, PersonalBestClaim claim, Instant at)
-	{
-		fields.put("Stored best", claim.isStoredBest() ? "yes" : "no");
-		return new PostPayload(PostKind.PB.getName(), Nonce.next(), account, null, at.toString(), fields, null,
-			claim.isStoredBest(), null);
+		// The bot keeps a post flagged as the game's stored best off a season board, and guesses the flag when it is missing
+		fields.put("Stored best", "no");
+		return new PostPayload(PostKind.PB.getName(), Nonce.next(), account, null, at.toString(), fields, null, null);
 	}
 
 	private static String timeType(TimedLine.Kind kind)
@@ -131,7 +109,7 @@ public class ActivityFormatter
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("Items", String.valueOf(entries.size()));
 		PostPayload payload = new PostPayload(kind.getName(), Nonce.next(), account, String.valueOf(accountHash), at.toString(),
-			fields, entries, false, null);
+			fields, entries, null);
 		return new Snapshot(payload, DeliveredSnapshots.fingerprint(gson.toJson(entries)));
 	}
 }
