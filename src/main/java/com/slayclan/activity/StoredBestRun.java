@@ -47,9 +47,26 @@ public class StoredBestRun
 		Matcher team = TEAM_SUFFIX.matcher(key);
 		if (team.matches())
 		{
-			return run(team.group(1), team.group(2) == null ? 1 : Integer.parseInt(team.group(2)), best.getSeconds());
+			return run(team.group(1), teamSizeOf(team.group(2)), best.getSeconds());
 		}
 		return run(key, UNKNOWN_TEAM_SIZE, best.getSeconds());
+	}
+
+	// No digits means solo; a number too long for an int is not a team size the game writes
+	private static int teamSizeOf(String digits)
+	{
+		if (digits == null)
+		{
+			return 1;
+		}
+		try
+		{
+			return Integer.parseInt(digits);
+		}
+		catch (NumberFormatException tooLong)
+		{
+			return UNKNOWN_TEAM_SIZE;
+		}
 	}
 
 	private static StoredBestRun run(String base, int teamSize, double seconds)
