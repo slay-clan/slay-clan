@@ -77,21 +77,21 @@ public class TaskProgressStoreTest
 	}
 
 	@Test
-	public void readsBaselineFlagPerAccount()
+	public void readsWhetherTheGamesRecordsWereJudgedPerAccountAndSource()
 	{
-		when(configManager.getConfiguration("slayclanmemory", "baseline.quest-cape.42")).thenReturn("true");
+		when(configManager.getConfiguration("slayclanmemory", "gamedata.ca.42")).thenReturn("true");
 
-		assertTrue(store.isBaselined("quest-cape", 42));
-		assertFalse(store.isBaselined("quest-cape", 43));
-		assertFalse(store.isBaselined("achievement-cape", 42));
+		assertTrue(store.isJudgedFromGameData("ca", 42));
+		assertFalse(store.isJudgedFromGameData("ca", 43));
+		assertFalse(store.isJudgedFromGameData("pb", 42));
 	}
 
 	@Test
-	public void writesBaselineFlagForTheAccount()
+	public void marksTheGamesRecordsAsJudgedForTheAccount()
 	{
-		store.markBaselined("quest-cape", 42);
+		store.markJudgedFromGameData("ca", 42);
 
-		verify(configManager).setConfiguration("slayclanmemory", "baseline.quest-cape.42", "true");
+		verify(configManager).setConfiguration("slayclanmemory", "gamedata.ca.42", "true");
 	}
 
 }

@@ -13,6 +13,7 @@ import com.slayclan.activity.OwnedItem;
 import com.slayclan.activity.PersonalBestClaim;
 import com.slayclan.activity.PersonalBestReader;
 import com.slayclan.activity.ScaleBestStore;
+import com.slayclan.activity.StoredPersonalBest;
 import com.slayclan.clan.ClanMembershipChecker;
 import com.slayclan.clan.MainGameWorld;
 import com.slayclan.config.RemoteConfig;
@@ -32,6 +33,7 @@ import com.slayclan.drop.ValuableDrop;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
 import com.slayclan.task.ClogTaskEvaluator;
+import com.slayclan.task.GameDataTaskEvaluator;
 import com.slayclan.task.LootTaskEvaluator;
 import com.slayclan.task.Names;
 import com.slayclan.task.ThresholdTaskEvaluator;
@@ -197,6 +199,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final DelveDetector delveDetector = new DelveDetector();
 	private final TimedTaskFilter timedTaskFilter = new TimedTaskFilter();
 	private final ThresholdTaskEvaluator thresholdTaskEvaluator = new ThresholdTaskEvaluator();
+	private static final String GAME_DATA_COMBAT_ACHIEVEMENTS = "ca";
+	private static final String GAME_DATA_PERSONAL_BESTS = "pb";
 	private final ContractTracker contractTracker = new ContractTracker();
 	private final List<PendingCompletion> pendingCompletions = new ArrayList<>();
 	private final List<TickedTime> recentTimes = new ArrayList<>();
@@ -204,6 +208,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private int lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
 	private final KillCountDetector killCountDetector = new KillCountDetector();
 	private final TaskMatcher taskMatcher = new TaskMatcher();
+	private final GameDataTaskEvaluator gameDataTaskEvaluator = new GameDataTaskEvaluator(taskMatcher, timedTaskFilter);
 	private final ClanMembershipChecker membershipChecker = new ClanMembershipChecker();
 	private final MessageFormatter messageFormatter = new MessageFormatter();
 	private final DropEvaluator dropEvaluator = new DropEvaluator();
@@ -239,6 +244,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	// Each said once per login and once per settings change, as every post would otherwise repeat it
 	private final Set<BotReply.Blocker> blockersSaid = ConcurrentHashMap.newKeySet();
 	private final Set<String> refusedThisLogin = ConcurrentHashMap.newKeySet();
+	private final Set<String> postedThisLogin = new HashSet<>();
+	private boolean caJudgementPending;
+	private boolean pbJudgementPending;
 	private final AtomicBoolean clanConfigChanged = new AtomicBoolean();
 	private boolean clogSettingCheckPending;
 	private boolean setupWarningPending;
@@ -290,6 +298,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		recentPersonalBests.clear();
 		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
+		postedThisLogin.clear();
+		caJudgementPending = false;
+		pbJudgementPending = false;
 		lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
 		statusCheckPending = false;
 		caSnapshotPending = false;
@@ -401,6 +412,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		pbSnapshotPending = true;
 		bossesReportedThisLogin.clear();
 		refusedThisLogin.clear();
+		postedThisLogin.clear();
+		caJudgementPending = false;
+		pbJudgementPending = false;
 		collectionLogCapture.onLogin();
 		clogSettingCheckPending = true;
 		thresholdCheckPending = true;
@@ -653,8 +667,10 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			{
 				caSnapshotPending = false;
 				activityReporter.reportCaSnapshot(target, account(), client.getAccountHash(), completed);
+				caJudgementPending = true;
 			});
 		}
+		judgeFromGameDataOnceAllowed();
 		if (statusCheckPending)
 		{
 			statusCheckPending = false;
@@ -737,7 +753,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		List<PostPayload> posts = new ArrayList<>();
 		for (TaskDefinition task : tasks)
 		{
-			progressStore.markCompleted(task.getId());
+			markCompleted(task);
 			String item = singleItems.get(task.getId());
 			if (item == null)
 			{
@@ -760,6 +776,63 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 		pbSnapshotPending = false;
 		activityReporter.reportPbSnapshot(target, account(), client.getAccountHash(), personalBestReader.read());
+		pbJudgementPending = true;
+	}
+
+	// The clan can be unknown for a while after login, and a judgement skipped then would wait for the next login
+	private void judgeFromGameDataOnceAllowed()
+	{
+		if (!gameDataJudgementPending() || !canPostForClan())
+		{
+			return;
+		}
+		RemoteConfig remoteConfig = remoteConfigService.current();
+		if (caJudgementPending)
+		{
+			caJudgementPending = false;
+			combatAchievementReader.readCompleted().ifPresent(completed ->
+				judgeFromGameData(GAME_DATA_COMBAT_ACHIEVEMENTS, gameDataTaskEvaluator.fromCombatAchievements(remoteConfig, completed)));
+		}
+		if (pbJudgementPending)
+		{
+			pbJudgementPending = false;
+			judgeFromGameData(GAME_DATA_PERSONAL_BESTS, gameDataTaskEvaluator.fromStoredBests(remoteConfig, personalBestReader.read()));
+		}
+	}
+
+	private boolean gameDataJudgementPending()
+	{
+		return caJudgementPending || pbJudgementPending;
+	}
+
+	/**
+	 * Posts the tasks the game's own records satisfy. The first time an account is judged this way, a task
+	 * marked done earlier counts again, since that mark may come from a post the bot refused; a task the member
+	 * already holds is refused once more and that leaves it done.
+	 */
+	private void judgeFromGameData(String source, List<TaskDefinition> satisfied)
+	{
+		long accountHash = client.getAccountHash();
+		boolean firstJudgement = !progressStore.isJudgedFromGameData(source, accountHash);
+		List<TaskDefinition> toPost = satisfied.stream()
+			.filter(task -> worthPostingFromGameData(task.getId(), firstJudgement))
+			.collect(Collectors.toList());
+		progressStore.markJudgedFromGameData(source, accountHash);
+		if (!toPost.isEmpty())
+		{
+			log.info("Posting {} tasks the game's {} records already satisfy", toPost.size(), source);
+			postTasks(toPost);
+		}
+	}
+
+	private boolean worthPostingFromGameData(String taskId, boolean firstJudgement)
+	{
+		return firstJudgement ? !settledThisLogin(taskId) : stillOpen(taskId);
+	}
+
+	private boolean settledThisLogin(String taskId)
+	{
+		return refusedThisLogin.contains(taskId) || postedThisLogin.contains(taskId);
 	}
 
 	// RuneLite's stored personal bests live in the game profile, which is only known once RuneLite has resolved it
@@ -1091,11 +1164,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return membershipChecker.membersAmong(clan, remoteConfig.getClanName(), participants);
 	}
 
-	/**
-	 * Equipment, experience and collection log count conditions can already be met when the plugin first sees
-	 * an account. The first check for each task only records that state, and only later changes get posted.
-	 * The baseline is per account, as an alt without the item says nothing about the main.
-	 */
 	private void checkThresholdTasks()
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
@@ -1104,12 +1172,6 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			return;
 		}
 
-		long accountHash = client.getAccountHash();
-		if (accountHash == -1)
-		{
-			thresholdCheckPending = true;
-			return;
-		}
 		Set<String> worn = itemNames(client.getItemContainer(InventoryID.WORN));
 		Set<String> held = new HashSet<>(worn);
 		held.addAll(itemNames(client.getItemContainer(InventoryID.INV)));
@@ -1123,18 +1185,10 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			{
 				continue;
 			}
-			boolean firstCheck = !progressStore.isBaselined(task.getId(), accountHash);
-			if (firstCheck)
-			{
-				progressStore.markBaselined(task.getId(), accountHash);
-			}
 			if (satisfied.get())
 			{
-				progressStore.markCompleted(task.getId());
-				if (!firstCheck)
-				{
-					reached.add(task);
-				}
+				markCompleted(task);
+				reached.add(task);
 			}
 		}
 		if (!reached.isEmpty())
@@ -1277,7 +1331,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			if (task.isOnce())
 			{
-				progressStore.markCompleted(task.getId());
+				markCompleted(task);
 			}
 			posts.add(messageFormatter.buildItemTask(account, task, item, null, completedAt));
 		}
@@ -1298,11 +1352,17 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			if (task.isOnce())
 			{
-				progressStore.markCompleted(task.getId());
+				markCompleted(task);
 			}
 			posts.add(messageFormatter.build(account, task, party, completedAt));
 		}
 		postWithScreenshot(botTarget(), posts);
+	}
+
+	private void markCompleted(TaskDefinition task)
+	{
+		progressStore.markCompleted(task.getId());
+		postedThisLogin.add(task.getId());
 	}
 
 	private boolean notYetPosted(TaskDefinition task)
@@ -1397,7 +1457,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 				posts.add(messageFormatter.buildItemTask(account, task, item.getName(), source, completedAt));
 				if (task.isOnce())
 				{
-					progressStore.markCompleted(task.getId());
+					markCompleted(task);
 					break;
 				}
 			}
