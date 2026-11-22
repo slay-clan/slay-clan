@@ -2,6 +2,7 @@ package com.slayclan.discord;
 
 import java.util.List;
 import java.util.Map;
+import lombok.AccessLevel;
 import lombok.Value;
 import lombok.With;
 
@@ -24,7 +25,14 @@ public class PostPayload
 	Map<String, String> fields;
 	List<?> entries;
 	transient boolean quiet;
+	@With(AccessLevel.NONE)
 	transient String taskId;
+
+	// Lombok's generated wither compares the string by reference, which code scanning flags
+	public PostPayload withTaskId(String taskId)
+	{
+		return new PostPayload(kind, nonce, account, accountHash, at, fields, entries, quiet, taskId);
+	}
 
 	public boolean isReceiptQuiet()
 	{
