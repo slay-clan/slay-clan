@@ -46,10 +46,10 @@ public class PendingPostStore
 	/** The shared queue first, then the account's own; an unknown account (-1) gets the shared queue only. */
 	public synchronized List<PendingPost> load(long accountHash, Instant now)
 	{
-		List<PendingPost> posts = new ArrayList<>(loadFresh(KEY, now));
+		List<PendingPost> posts = new ArrayList<>(shared().loadFresh(now));
 		if (accountHash != UNKNOWN_ACCOUNT)
 		{
-			posts.addAll(loadFresh(queueKey(String.valueOf(accountHash)), now));
+			posts.addAll(queueOf(String.valueOf(accountHash)).loadFresh(now));
 		}
 		return posts;
 	}
@@ -57,94 +57,55 @@ public class PendingPostStore
 	/** Returns the posts this one pushed out of a full queue, so what else was kept for them can go too. */
 	public synchronized List<PendingPost> add(PostPayload payload, Instant createdAt, boolean screenshotKept)
 	{
-		String key = queueKey(payload.getAccountHash());
-		List<PendingPost> posts = new ArrayList<>(loadFresh(key, createdAt));
+		Queue queue = queueOf(payload.getAccountHash());
+		List<PendingPost> posts = new ArrayList<>(queue.loadFresh(createdAt));
 		posts.add(new PendingPost(createdAt.toString(), payload, screenshotKept));
 		int pushedOut = Math.max(0, posts.size() - MAX_POSTS);
 		if (pushedOut > 0)
 		{
 			countDropped(pushedOut);
 		}
-		save(key, posts.subList(pushedOut, posts.size()));
+		queue.save(posts.subList(pushedOut, posts.size()));
 		return List.copyOf(posts.subList(0, pushedOut));
 	}
 
-	/** From the post's own queue and from the shared one, where posts kept before the split carry an account too. */
 	public synchronized void remove(PendingPost post)
 	{
-		String ownQueue = queueKey(post.getPayload().getAccountHash());
-		removeFrom(ownQueue, post);
-		if (!ownQueue.equals(KEY))
-		{
-			removeFrom(KEY, post);
-		}
-	}
-
-	private void removeFrom(String key, PendingPost post)
-	{
-		List<PendingPost> stored = loadFresh(key, Instant.now());
-		List<PendingPost> kept = stored.stream()
-			.filter(other -> !isSamePost(other, post))
-			.collect(Collectors.toList());
-		if (kept.size() < stored.size())
-		{
-			save(key, kept);
-		}
+		queuesHolding(post).forEach(queue -> queue.remove(post));
 	}
 
 	/** Counts a send that failed again, in whichever queue the post waits in. */
 	public synchronized void countFailedSend(PendingPost post)
 	{
-		String ownQueue = queueKey(post.getPayload().getAccountHash());
-		countFailedSendIn(ownQueue, post);
-		if (!ownQueue.equals(KEY))
-		{
-			countFailedSendIn(KEY, post);
-		}
+		queuesHolding(post).forEach(queue -> queue.countFailedSend(post));
 	}
 
-	private void countFailedSendIn(String key, PendingPost post)
+	// Posts kept before the queues were split carry an account too, but wait in the shared queue
+	private List<Queue> queuesHolding(PendingPost post)
 	{
-		List<PendingPost> stored = loadFresh(key, Instant.now());
-		if (stored.stream().noneMatch(other -> isSamePost(other, post)))
-		{
-			return;
-		}
-		List<PendingPost> counted = stored.stream()
-			.map(other -> isSamePost(other, post) ? other.withFailedSends(other.nextTry()) : other)
-			.collect(Collectors.toList());
-		save(key, counted);
+		Queue own = queueOf(post.getPayload().getAccountHash());
+		return own.isShared() ? List.of(own) : List.of(own, shared());
 	}
 
-	private List<PendingPost> loadFresh(String key, Instant now)
+	private Queue queueOf(String accountHash)
 	{
-		List<PendingPost> stored = loadAll(key);
-		Instant oldest = now.minus(MAX_AGE);
-		List<PendingPost> fresh = stored.stream()
-			.filter(post -> isNewerThan(post, oldest))
-			.collect(Collectors.toList());
-		if (fresh.size() < stored.size())
-		{
-			countDropped(stored.size() - fresh.size());
-			save(key, fresh);
-		}
-		return fresh;
+		return hasNoAccount(accountHash) ? shared() : new Queue(KEY + "." + accountHash);
+	}
+
+	private Queue shared()
+	{
+		return new Queue(KEY);
+	}
+
+	private static boolean hasNoAccount(String accountHash)
+	{
+		return accountHash == null || accountHash.isEmpty();
 	}
 
 	// By nonce, since another client on the profile may have counted a failed send on the stored copy meanwhile
 	private static boolean isSamePost(PendingPost stored, PendingPost post)
 	{
 		return stored.getPayload().getNonce().equals(post.getPayload().getNonce());
-	}
-
-	private static String queueKey(String accountHash)
-	{
-		return hasNoAccount(accountHash) ? KEY : KEY + "." + accountHash;
-	}
-
-	private static boolean hasNoAccount(String accountHash)
-	{
-		return accountHash == null || accountHash.isEmpty();
 	}
 
 	/**
@@ -167,26 +128,6 @@ public class PendingPostStore
 		catch (NumberFormatException e)
 		{
 			return 0;
-		}
-	}
-
-	private List<PendingPost> loadAll(String key)
-	{
-		String stored = configManager.getConfiguration(SlayClanConfig.MEMORY_GROUP, key);
-		if (stored == null || stored.isEmpty())
-		{
-			return Collections.emptyList();
-		}
-		try
-		{
-			return Arrays.asList(gson.fromJson(stored, PendingPost[].class));
-		}
-		catch (RuntimeException e)
-		{
-			log.warn("Discarding unreadable pending posts", e);
-			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
-			countDropped(Math.max(1, occurrences(stored, CREATED_AT_FIELD)));
-			return Collections.emptyList();
 		}
 	}
 
@@ -220,15 +161,90 @@ public class PendingPostStore
 		configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, DROPPED_KEY, String.valueOf(droppedCount() + count));
 	}
 
-	private void save(String key, List<PendingPost> posts)
+	/** One queue in the profile, under its own key. */
+	private final class Queue
 	{
-		if (posts.isEmpty())
+		private final String key;
+
+		Queue(String key)
 		{
-			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
+			this.key = key;
 		}
-		else
+
+		boolean isShared()
 		{
-			configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, key, gson.toJson(posts));
+			return KEY.equals(key);
+		}
+
+		List<PendingPost> loadFresh(Instant now)
+		{
+			List<PendingPost> stored = loadAll();
+			Instant oldest = now.minus(MAX_AGE);
+			List<PendingPost> fresh = stored.stream()
+				.filter(post -> isNewerThan(post, oldest))
+				.collect(Collectors.toList());
+			if (fresh.size() < stored.size())
+			{
+				countDropped(stored.size() - fresh.size());
+				save(fresh);
+			}
+			return fresh;
+		}
+
+		void remove(PendingPost post)
+		{
+			List<PendingPost> stored = loadFresh(Instant.now());
+			List<PendingPost> kept = stored.stream()
+				.filter(other -> !isSamePost(other, post))
+				.collect(Collectors.toList());
+			if (kept.size() < stored.size())
+			{
+				save(kept);
+			}
+		}
+
+		void countFailedSend(PendingPost post)
+		{
+			List<PendingPost> stored = loadFresh(Instant.now());
+			if (stored.stream().noneMatch(other -> isSamePost(other, post)))
+			{
+				return;
+			}
+			save(stored.stream()
+				.map(other -> isSamePost(other, post) ? other.withFailedSends(other.nextTry()) : other)
+				.collect(Collectors.toList()));
+		}
+
+		void save(List<PendingPost> posts)
+		{
+			if (posts.isEmpty())
+			{
+				configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
+			}
+			else
+			{
+				configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, key, gson.toJson(posts));
+			}
+		}
+
+		private List<PendingPost> loadAll()
+		{
+			String stored = configManager.getConfiguration(SlayClanConfig.MEMORY_GROUP, key);
+			if (stored == null || stored.isEmpty())
+			{
+				return Collections.emptyList();
+			}
+			try
+			{
+				return Arrays.asList(gson.fromJson(stored, PendingPost[].class));
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("Discarding unreadable pending posts", e);
+				configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
+				countDropped(Math.max(1, occurrences(stored, CREATED_AT_FIELD)));
+				return Collections.emptyList();
+			}
 		}
 	}
 }
