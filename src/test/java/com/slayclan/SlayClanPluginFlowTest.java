@@ -1222,7 +1222,7 @@ public class SlayClanPluginFlowTest
 		assertEquals("screenshot_failed", task.getFields().get("Problems"));
 		assertEquals(PluginVersion.VERSION, task.getFields().get("Plugin version"));
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
-			contains("the screenshot failed, this post was sent without one"), isNull());
+			contains("the screenshot failed, the post goes to the clan without one"), isNull());
 	}
 
 	@Test

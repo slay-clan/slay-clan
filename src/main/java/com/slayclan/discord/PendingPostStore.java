@@ -139,7 +139,12 @@ public class PendingPostStore
 
 	private static String queueKey(String accountHash)
 	{
-		return accountHash == null || accountHash.isEmpty() ? KEY : KEY + "." + accountHash;
+		return hasNoAccount(accountHash) ? KEY : KEY + "." + accountHash;
+	}
+
+	private static boolean hasNoAccount(String accountHash)
+	{
+		return accountHash == null || accountHash.isEmpty();
 	}
 
 	/**

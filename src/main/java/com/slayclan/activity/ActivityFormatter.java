@@ -1,10 +1,10 @@
 package com.slayclan.activity;
 
 import com.google.gson.Gson;
+import com.slayclan.PluginVersion;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.Nonce;
 import com.slayclan.discord.PostKind;
-import com.slayclan.PluginVersion;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.PostProblems;
 import com.slayclan.trigger.TimedLine;

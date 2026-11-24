@@ -1692,7 +1692,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			if (png == null)
 			{
-				clientThread.invoke(() -> warnInChat("Slay Clan: the screenshot failed, this post was sent without one."));
+				clientThread.invoke(() -> warnInChat("Slay Clan: the screenshot failed, the post goes to the clan without one."));
 			}
 			posts.forEach(payload -> activityReporter.send(target, withScreenshotOutcome(account.stamp(payload), png), png));
 		});

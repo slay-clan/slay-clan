@@ -1,5 +1,6 @@
 package com.slayclan.activity;
 
+import com.slayclan.PluginVersion;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
@@ -7,7 +8,6 @@ import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostProblems;
-import com.slayclan.PluginVersion;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
 import java.time.Instant;
@@ -85,7 +85,7 @@ public class ActivityReporter
 					discardScreenshotOf(first);
 					settleTask(first.getTaskId(), reply);
 				}
-				if (!reply.isDelivered())
+				else
 				{
 					pendingPostStore.countFailedSend(first);
 				}
