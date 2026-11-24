@@ -1,8 +1,6 @@
 package com.slayclan.activity;
 
-import com.slayclan.task.Names;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,11 +8,11 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.EnumComposition;
 import net.runelite.api.MenuAction;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.game.ItemManager;
 
@@ -25,20 +23,22 @@ import net.runelite.client.game.ItemManager;
 @Slf4j
 public class CollectionLogCapture
 {
-	// Neither gameval nor net.runelite.api.ScriptID names these scripts and this enum; the ids come from WikiSync and RuneProfile
+	// Neither gameval nor net.runelite.api.ScriptID names these scripts; the ids come from WikiSync and RuneProfile
 	public static final int COLLECTION_LOG_SETUP = 7797;
 	public static final int COLLECTION_TRANSMIT = 4100;
 	static final int COLLECTION_INIT = 2240;
-	static final int ITEM_REPLACEMENTS = 3721;
 	private static final int SETTLE_TICKS = 2;
 	// A capture that gets no items, because the log was closed at once or the search did not open, must not swallow the next opening
 	static final int NO_ITEMS_TIMEOUT_TICKS = 50;
+	// An incomplete capture is retried at the next openings, but a log that never adds up must not toggle the search every time
+	static final int MAX_CAPTURES_PER_LOGIN = 3;
 
 	private final Client client;
 	private final ItemManager itemManager;
 	private final BooleanSupplier captureWanted;
 	private boolean captureAllowed;
 	private boolean capturing;
+	private int capturesThisLogin;
 	private final List<OwnedItem> items = new ArrayList<>();
 	private int captureStartTick = -1;
 	private int lastTransmitTick = -1;
@@ -53,6 +53,7 @@ public class CollectionLogCapture
 	public void onLogin()
 	{
 		captureAllowed = true;
+		capturesThisLogin = 0;
 		reset();
 	}
 
@@ -72,6 +73,7 @@ public class CollectionLogCapture
 		}
 		captureAllowed = false;
 		capturing = true;
+		capturesThisLogin++;
 		captureStartTick = client.getTickCount();
 		client.menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
 		client.runScript(COLLECTION_INIT);
@@ -86,11 +88,11 @@ public class CollectionLogCapture
 		Object[] args = event.getScriptEvent().getArguments();
 		int itemId = (int) args[1];
 		int quantity = (int) args[2];
-		items.add(new OwnedItem(itemId, itemManager.getItemComposition(itemId).getName(), quantity));
+		items.add(new OwnedItem(itemId, itemManager.getItemComposition(itemId).getMembersName(), quantity));
 		lastTransmitTick = client.getTickCount();
 	}
 
-	public Optional<List<OwnedItem>> onTick(int tick)
+	public Optional<CapturedLog> onTick(int tick)
 	{
 		if (captureGaveNothing(tick))
 		{
@@ -103,9 +105,22 @@ public class CollectionLogCapture
 		{
 			return Optional.empty();
 		}
-		List<OwnedItem> captured = distinctItems();
+		CapturedLog captured = new CapturedLog(slotItems(), client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 		reset();
+		if (!captured.isComplete())
+		{
+			log.info("Collection log capture holds {} slots while the game counts {}", captured.getItems().size(), captured.getGameCount());
+			retryAtNextOpening();
+		}
 		return Optional.of(captured);
+	}
+
+	private void retryAtNextOpening()
+	{
+		if (capturesThisLogin < MAX_CAPTURES_PER_LOGIN)
+		{
+			captureAllowed = true;
+		}
 	}
 
 	private void reset()
@@ -117,62 +132,48 @@ public class CollectionLogCapture
 	}
 
 	/**
-	 * The game sends an item once per log page it appears on, and some items have a replacement id (enum 3721,
-	 * as WikiSync uses it), so the list is folded to one entry per item, matching the game's own slot count.
-	 * Items the enum does not cover but which the game still sends under two ids, such as the Prospector set
-	 * (12013 and 29472), share one name, so a second pass folds on the name and keeps the lowest id.
+	 * One entry per log slot, as the game counts them. The game sends an item once per page it appears on, and the
+	 * Prospector kit under a second id (see {@link CollectionLogSlots}).
 	 */
-	private List<OwnedItem> distinctItems()
+	private List<OwnedItem> slotItems()
 	{
-		Map<Integer, Integer> replacements = replacementIds();
-		log.debug("Collection log capture folding {} items with {} replacement ids", items.size(), replacements.size());
-		Map<Integer, OwnedItem> byId = new LinkedHashMap<>();
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+		logWhenCacheDisagreesWithGame(slots);
+		Map<Integer, OwnedItem> bySlot = new LinkedHashMap<>();
 		for (OwnedItem item : items)
 		{
-			int id = replacements.getOrDefault(item.getId(), item.getId());
-			if (higherQuantityThanKnown(item, byId.get(id)))
+			Integer slot = slots.slotOf(item.getId());
+			if (slot == null)
 			{
-				byId.put(id, new OwnedItem(id, item.getName(), item.getQuantity()));
+				log.debug("Collection log item {} ({}) is in no log slot, left out", item.getId(), item.getName());
+				continue;
+			}
+			if (higherQuantityThanKnown(item, bySlot.get(slot)))
+			{
+				bySlot.put(slot, new OwnedItem(slot, itemManager.getItemComposition(slot).getMembersName(), item.getQuantity()));
 			}
 		}
-		Map<String, OwnedItem> byName = new LinkedHashMap<>();
-		for (OwnedItem item : byId.values())
+		return new ArrayList<>(bySlot.values());
+	}
+
+	// A new pair of look-alike ids the slot rule does not cover would show up here first
+	private void logWhenCacheDisagreesWithGame(CollectionLogSlots slots)
+	{
+		int gameTotal = client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX);
+		if (cacheDisagreesWithGame(slots, gameTotal))
 		{
-			String name = Names.normalize(item.getName());
-			OwnedItem known = byName.get(name);
-			if (known == null)
-			{
-				byName.put(name, item);
-			}
-			else
-			{
-				byName.put(name, new OwnedItem(Math.min(known.getId(), item.getId()), known.getName(),
-					Math.max(known.getQuantity(), item.getQuantity())));
-			}
+			log.info("Collection log cache holds {} slots while the game counts {}", slots.count(), gameTotal);
 		}
-		return new ArrayList<>(byName.values());
+	}
+
+	private static boolean cacheDisagreesWithGame(CollectionLogSlots slots, int gameTotal)
+	{
+		return slots.isKnown() && gameTotal > 0 && slots.count() != gameTotal;
 	}
 
 	private static boolean higherQuantityThanKnown(OwnedItem item, OwnedItem known)
 	{
 		return known == null || item.getQuantity() > known.getQuantity();
-	}
-
-	private Map<Integer, Integer> replacementIds()
-	{
-		EnumComposition replacements = client.getEnum(ITEM_REPLACEMENTS);
-		Map<Integer, Integer> ids = new HashMap<>();
-		if (replacements == null)
-		{
-			return ids;
-		}
-		int[] from = replacements.getKeys();
-		int[] to = replacements.getIntVals();
-		for (int i = 0; i < Math.min(from.length, to.length); i++)
-		{
-			ids.put(from[i], to[i]);
-		}
-		return ids;
 	}
 
 	private boolean shouldStartCapture()

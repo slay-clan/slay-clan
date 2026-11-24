@@ -1,0 +1,121 @@
+package com.slayclan.activity;
+
+import static com.slayclan.activity.CollectionLogCacheMock.item;
+import static com.slayclan.activity.CollectionLogCacheMock.logPages;
+import static com.slayclan.activity.CollectionLogCacheMock.replacement;
+import net.runelite.api.Client;
+import net.runelite.client.game.ItemManager;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import org.junit.Before;
+import org.junit.Test;
+import static org.mockito.Mockito.mock;
+
+public class CollectionLogSlotsTest
+{
+	private Client client;
+	private ItemManager itemManager;
+
+	@Before
+	public void setUp()
+	{
+		client = mock(Client.class);
+		itemManager = mock(ItemManager.class);
+	}
+
+	@Test
+	public void countsTheProspectorKitListedOnTwoPagesUnderTwoIdsAsOneSlotUnderTheLowestId()
+	{
+		logPages(client, new int[]{12013}, new int[]{29472});
+		item(itemManager, 12013, "Prospector helmet");
+		item(itemManager, 29472, "Prospector helmet");
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertEquals(Integer.valueOf(12013), slots.slotOf(29472));
+		assertEquals(Integer.valueOf(12013), slots.slotOf(12013));
+		assertEquals(1, slots.count());
+	}
+
+	@Test
+	public void keepsGracefulPiecesFromDifferentCoursesApartSinceTheirColoursDiffer()
+	{
+		logPages(client, new int[]{11850}, new int[]{21061});
+		item(itemManager, 11850, "Graceful hood", 1000, new short[]{1});
+		item(itemManager, 21061, "Graceful hood", 1000, new short[]{2});
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertEquals(Integer.valueOf(21061), slots.slotOf(21061));
+		assertEquals(2, slots.count());
+	}
+
+	@Test
+	public void keepsLookAlikeItemsOnTheSamePageApart()
+	{
+		logPages(client, new int[]{24763, 24765});
+		item(itemManager, 24763, "Mysterious page");
+		item(itemManager, 24765, "Mysterious page");
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertEquals(Integer.valueOf(24765), slots.slotOf(24765));
+		assertEquals(2, slots.count());
+	}
+
+	@Test
+	public void keepsALookAlikeApartWhenItSharesAPageWithAnyItemOfTheSlot()
+	{
+		logPages(client, new int[]{100, 300}, new int[]{200});
+		item(itemManager, 100, "Rum");
+		item(itemManager, 200, "Rum");
+		item(itemManager, 300, "Rum");
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertEquals(Integer.valueOf(100), slots.slotOf(200));
+		assertEquals(Integer.valueOf(300), slots.slotOf(300));
+		assertEquals(2, slots.count());
+	}
+
+	@Test
+	public void countsAnItemShownOnSeveralPagesUnderOneIdOnce()
+	{
+		logPages(client, new int[]{4151}, new int[]{4151});
+		item(itemManager, 4151, "Abyssal whip");
+
+		assertEquals(1, CollectionLogSlots.read(client, itemManager).count());
+	}
+
+	@Test
+	public void countsAnItemUnderTheIdTheLogShowsForIt()
+	{
+		replacement(client, 10859, 25617);
+		logPages(client, new int[]{10859});
+		item(itemManager, 25617, "Tea flask");
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertEquals(Integer.valueOf(25617), slots.slotOf(10859));
+		assertEquals(Integer.valueOf(25617), slots.slotOf(25617));
+	}
+
+	@Test
+	public void findsNoSlotForAnItemThatIsNotInTheLog()
+	{
+		logPages(client, new int[]{21992});
+		item(itemManager, 21992, "Vorki");
+
+		assertNull(CollectionLogSlots.read(client, itemManager).slotOf(995));
+	}
+
+	@Test
+	public void treatsEveryItemAsItsOwnSlotWhenTheCacheHasNoLog()
+	{
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertFalse(slots.isKnown());
+		assertEquals(Integer.valueOf(21992), slots.slotOf(21992));
+	}
+}

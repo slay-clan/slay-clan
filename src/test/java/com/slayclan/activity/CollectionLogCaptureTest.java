@@ -1,19 +1,22 @@
 package com.slayclan.activity;
 
+import static com.slayclan.activity.CollectionLogCacheMock.item;
+import static com.slayclan.activity.CollectionLogCacheMock.logPages;
 import java.util.List;
 import java.util.Optional;
 import net.runelite.api.Client;
-import net.runelite.api.EnumComposition;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.MenuAction;
 import net.runelite.api.ScriptEvent;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.game.ItemManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -35,10 +38,9 @@ public class CollectionLogCaptureTest
 	{
 		client = mock(Client.class);
 		when(client.getTickCount()).thenReturn(100);
+		gameCounts(1);
 		itemManager = mock(ItemManager.class);
-		ItemComposition vorki = mock(ItemComposition.class);
-		when(vorki.getName()).thenReturn("Vorki");
-		when(itemManager.getItemComposition(21992)).thenReturn(vorki);
+		item(itemManager, 21992, "Vorki");
 		capture = new CollectionLogCapture(client, itemManager, () -> captureWanted);
 		capture.onLogin();
 	}
@@ -46,77 +48,126 @@ public class CollectionLogCaptureTest
 	@Test
 	public void requestsTheFullLogWhenThePlayerOpensTheirOwnLog()
 	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 
 		verify(client).menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
 		verify(client).runScript(CollectionLogCapture.COLLECTION_INIT);
 	}
 
 	@Test
-	public void collectsItemsAndHandsThemOverTwoTicksAfterTheLast()
+	public void handsOverTheOwnedItemsTwoTicksAfterTheLastItemArrives()
 	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
 
 		assertFalse(capture.onTick(101).isPresent());
-		assertEquals(Optional.of(List.of(new OwnedItem(21992, "Vorki", 1))), capture.onTick(102));
+		assertEquals(Optional.of(List.of(new OwnedItem(21992, "Vorki", 1))), capture.onTick(102).map(CapturedLog::getItems));
 		assertFalse(capture.onTick(103).isPresent());
 	}
 
 	@Test
-	public void foldsItemsSentOnSeveralPagesIntoOne()
+	public void countsAnItemShownOnSeveralPagesOnce()
 	{
-		ItemComposition rocky = mock(ItemComposition.class);
-		when(rocky.getName()).thenReturn("Rocky");
-		when(itemManager.getItemComposition(20663)).thenReturn(rocky);
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		gameCounts(2);
+		item(itemManager, 20663, "Rocky");
+		openLog();
 		capture.onScriptPreFired(transmit(20663, 1));
 		capture.onScriptPreFired(transmit(21992, 1));
 		capture.onScriptPreFired(transmit(20663, 1));
 
-		assertEquals(Optional.of(List.of(new OwnedItem(20663, "Rocky", 1), new OwnedItem(21992, "Vorki", 1))), capture.onTick(102));
+		assertEquals(List.of(new OwnedItem(20663, "Rocky", 1), new OwnedItem(21992, "Vorki", 1)), captured().getItems());
 	}
 
 	@Test
-	public void mapsReplacedItemIdsOntoTheirReplacement()
+	public void countsTheProspectorKitFromBothMiningPagesAsOneItemUnderItsMotherlodeId()
 	{
-		EnumComposition replacements = mock(EnumComposition.class);
-		when(replacements.getKeys()).thenReturn(new int[]{12013});
-		when(replacements.getIntVals()).thenReturn(new int[]{29472});
-		when(client.getEnum(CollectionLogCapture.ITEM_REPLACEMENTS)).thenReturn(replacements);
-		ItemComposition helmet = mock(ItemComposition.class);
-		when(helmet.getName()).thenReturn("Prospector helmet");
-		when(itemManager.getItemComposition(12013)).thenReturn(helmet);
-		when(itemManager.getItemComposition(29472)).thenReturn(helmet);
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		logPages(client, new int[]{12013}, new int[]{29472});
+		item(itemManager, 12013, "Prospector helmet");
+		item(itemManager, 29472, "Prospector helmet");
+		openLog();
+		capture.onScriptPreFired(transmit(29472, 1));
 		capture.onScriptPreFired(transmit(12013, 1));
-		capture.onScriptPreFired(transmit(29472, 1));
 
-		assertEquals(Optional.of(List.of(new OwnedItem(29472, "Prospector helmet", 1))), capture.onTick(102));
+		CapturedLog log = captured();
+
+		assertEquals(List.of(new OwnedItem(12013, "Prospector helmet", 1)), log.getItems());
+		assertTrue(log.isComplete());
 	}
 
 	@Test
-	public void foldsAnItemSentUnderTwoIdsWithTheSameNameOntoTheLowerId()
+	public void leavesOutAnItemThatIsInNoLogSlot()
 	{
-		ItemComposition helmet = mock(ItemComposition.class);
-		when(helmet.getName()).thenReturn("Prospector helmet");
-		when(itemManager.getItemComposition(12013)).thenReturn(helmet);
-		when(itemManager.getItemComposition(29472)).thenReturn(helmet);
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
-		capture.onScriptPreFired(transmit(29472, 1));
-		capture.onScriptPreFired(transmit(12013, 2));
-
-		assertEquals(Optional.of(List.of(new OwnedItem(12013, "Prospector helmet", 2))), capture.onTick(102));
-	}
-
-	@Test
-	public void capturesOnlyOncePerLogin()
-	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		logPages(client, new int[]{21992});
+		item(itemManager, 995, "Coins");
+		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
-		capture.onTick(102);
+		capture.onScriptPreFired(transmit(995, 1));
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		assertEquals(List.of(new OwnedItem(21992, "Vorki", 1)), captured().getItems());
+	}
+
+	@Test
+	public void namesItemsWithoutTheMembersSuffixOnFreeWorlds()
+	{
+		ItemComposition vorki = mock(ItemComposition.class);
+		when(vorki.getName()).thenReturn("Vorki (Members)");
+		when(vorki.getMembersName()).thenReturn("Vorki");
+		when(itemManager.getItemComposition(21992)).thenReturn(vorki);
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+
+		assertEquals("Vorki", captured().getItems().get(0).getName());
+	}
+
+	@Test
+	public void marksTheCaptureCompleteWhenItHoldsAsManyItemsAsTheGameCounts()
+	{
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+
+		CapturedLog log = captured();
+
+		assertEquals(1, log.getGameCount());
+		assertTrue(log.isComplete());
+	}
+
+	@Test
+	public void marksTheCaptureIncompleteAndCapturesAgainAtTheNextOpening()
+	{
+		gameCounts(2);
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+		assertFalse(captured().isComplete());
+
+		openLog();
+
+		verify(client, times(2)).runScript(anyInt());
+	}
+
+	@Test
+	public void stopsCapturingAgainAfterThreeIncompleteCapturesInOneLogin()
+	{
+		gameCounts(2);
+		for (int i = 0; i < CollectionLogCapture.MAX_CAPTURES_PER_LOGIN; i++)
+		{
+			openLog();
+			capture.onScriptPreFired(transmit(21992, 1));
+			captured();
+		}
+
+		openLog();
+
+		verify(client, times(CollectionLogCapture.MAX_CAPTURES_PER_LOGIN)).runScript(anyInt());
+	}
+
+	@Test
+	public void capturesOnlyOncePerLoginWhenTheCaptureIsComplete()
+	{
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+		captured();
+
+		openLog();
 
 		verify(client, times(1)).runScript(anyInt());
 	}
@@ -124,12 +175,12 @@ public class CollectionLogCaptureTest
 	@Test
 	public void capturesAgainAfterANewLogin()
 	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
-		capture.onTick(102);
+		captured();
 		capture.onLogin();
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 
 		verify(client, times(2)).runScript(anyInt());
 	}
@@ -139,7 +190,7 @@ public class CollectionLogCaptureTest
 	{
 		when(client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN)).thenReturn(1);
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
 
 		verify(client, never()).runScript(anyInt());
@@ -159,7 +210,7 @@ public class CollectionLogCaptureTest
 	{
 		captureWanted = false;
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 
 		verify(client, never()).runScript(anyInt());
 	}
@@ -167,12 +218,12 @@ public class CollectionLogCaptureTest
 	@Test
 	public void capturesAtTheNextOpeningWhenTheCapturedListCouldNotBeUsed()
 	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
-		capture.onTick(102);
+		captured();
 		capture.allowAgain();
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 
 		verify(client, times(2)).runScript(anyInt());
 	}
@@ -180,15 +231,30 @@ public class CollectionLogCaptureTest
 	@Test
 	public void givesUpACaptureThatGetsNoItemsAndLetsTheNextOpeningTryAgain()
 	{
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		int givenUp = 100 + CollectionLogCapture.NO_ITEMS_TIMEOUT_TICKS + 1;
 		assertFalse(capture.onTick(givenUp).isPresent());
 
 		capture.onScriptPreFired(transmit(21992, 1));
 		assertFalse(capture.onTick(givenUp + 2).isPresent());
 
-		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+		openLog();
 		verify(client, times(2)).runScript(anyInt());
+	}
+
+	private void gameCounts(int obtained)
+	{
+		when(client.getVarpValue(VarPlayerID.COLLECTION_COUNT)).thenReturn(obtained);
+	}
+
+	private void openLog()
+	{
+		capture.onScriptPostFired(new ScriptPostFired(CollectionLogCapture.COLLECTION_LOG_SETUP));
+	}
+
+	private CapturedLog captured()
+	{
+		return capture.onTick(102).orElseThrow();
 	}
 
 	private static ScriptPreFired transmit(int itemId, int quantity)
