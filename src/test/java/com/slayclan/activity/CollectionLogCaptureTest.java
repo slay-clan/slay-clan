@@ -1,7 +1,5 @@
 package com.slayclan.activity;
 
-import static com.slayclan.activity.CollectionLogCacheMock.item;
-import static com.slayclan.activity.CollectionLogCacheMock.logPages;
 import java.util.List;
 import java.util.Optional;
 import net.runelite.api.Client;
@@ -31,6 +29,7 @@ public class CollectionLogCaptureTest
 {
 	private Client client;
 	private ItemManager itemManager;
+	private CollectionLogCacheMock cache;
 	private boolean captureWanted = true;
 	private CollectionLogCapture capture;
 
@@ -41,7 +40,8 @@ public class CollectionLogCaptureTest
 		when(client.getTickCount()).thenReturn(100);
 		gameCounts(1);
 		itemManager = mock(ItemManager.class);
-		item(itemManager, 21992, "Vorki");
+		cache = new CollectionLogCacheMock(client, itemManager);
+		cache.item(21992, "Vorki");
 		capture = new CollectionLogCapture(client, itemManager, () -> captureWanted);
 		capture.onLogin();
 	}
@@ -70,7 +70,7 @@ public class CollectionLogCaptureTest
 	public void countsAnItemShownOnSeveralPagesOnce()
 	{
 		gameCounts(2);
-		item(itemManager, 20663, "Rocky");
+		cache.item(20663, "Rocky");
 		openLog();
 		capture.onScriptPreFired(transmit(20663, 1));
 		capture.onScriptPreFired(transmit(21992, 1));
@@ -82,9 +82,9 @@ public class CollectionLogCaptureTest
 	@Test
 	public void countsTheProspectorKitFromBothMiningPagesAsOneItemUnderItsMotherlodeId()
 	{
-		logPages(client, new int[]{12013}, new int[]{29472});
-		item(itemManager, 12013, "Prospector helmet");
-		item(itemManager, 29472, "Prospector helmet");
+		cache.logPages(new int[]{12013}, new int[]{29472});
+		cache.item(12013, "Prospector helmet");
+		cache.item(29472, "Prospector helmet");
 		openLog();
 		capture.onScriptPreFired(transmit(29472, 1));
 		capture.onScriptPreFired(transmit(12013, 1));
@@ -98,8 +98,8 @@ public class CollectionLogCaptureTest
 	@Test
 	public void keepsAnItemOnNoLogPageAndMarksTheCaptureAsNotMatchingTheGame()
 	{
-		logPages(client, new int[]{21992});
-		item(itemManager, 995, "Coins");
+		cache.logPages(new int[]{21992});
+		cache.item(995, "Coins");
 		openLog();
 		capture.onScriptPreFired(transmit(21992, 1));
 		capture.onScriptPreFired(transmit(995, 1));
@@ -113,7 +113,7 @@ public class CollectionLogCaptureTest
 	@Test
 	public void aCaptureThatFailsWhileSortingIntoSlotsIsDroppedOnceInsteadOfFailingEveryTick()
 	{
-		logPages(client, new int[]{21992});
+		cache.logPages(new int[]{21992});
 		ItemComposition vorki = itemManager.getItemComposition(21992);
 		when(itemManager.getItemComposition(21992)).thenReturn(vorki).thenThrow(new IllegalStateException("cache"));
 		openLog();
@@ -121,6 +121,45 @@ public class CollectionLogCaptureTest
 
 		assertThrows(IllegalStateException.class, () -> capture.onTick(102));
 		assertFalse(capture.onTick(103).isPresent());
+	}
+
+	@Test
+	public void doesNotCaptureAgainWhileTheGameHasNotSentItsCount()
+	{
+		gameCounts(0);
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+		assertFalse(captured().isComplete());
+
+		openLog();
+
+		verify(client, times(1)).runScript(anyInt());
+	}
+
+	@Test
+	public void sendsTheCaptureWithOneItemPerIdWhenTheLogCannotBeReadFromTheCache()
+	{
+		when(client.getEnum(CollectionLogSlots.COLLECTION_LOG_TABS)).thenThrow(new IllegalStateException("cache"));
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+
+		assertEquals(List.of(new OwnedItem(21992, "Vorki", 1)), captured().getItems());
+	}
+
+	@Test
+	public void aCaptureTheClanCouldNotUseIsRetriedOnlyWithinTheCapturesAllowedPerLogin()
+	{
+		for (int i = 0; i < CollectionLogCapture.MAX_CAPTURES_PER_LOGIN; i++)
+		{
+			openLog();
+			capture.onScriptPreFired(transmit(21992, 1));
+			captured();
+			capture.allowAgain();
+		}
+
+		openLog();
+
+		verify(client, times(CollectionLogCapture.MAX_CAPTURES_PER_LOGIN)).runScript(anyInt());
 	}
 
 	@Test

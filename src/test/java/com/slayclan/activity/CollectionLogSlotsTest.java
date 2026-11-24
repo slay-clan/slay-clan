@@ -1,8 +1,5 @@
 package com.slayclan.activity;
 
-import static com.slayclan.activity.CollectionLogCacheMock.item;
-import static com.slayclan.activity.CollectionLogCacheMock.logPages;
-import static com.slayclan.activity.CollectionLogCacheMock.replacement;
 import net.runelite.api.Client;
 import net.runelite.client.game.ItemManager;
 import static org.junit.Assert.assertEquals;
@@ -17,20 +14,22 @@ public class CollectionLogSlotsTest
 {
 	private Client client;
 	private ItemManager itemManager;
+	private CollectionLogCacheMock cache;
 
 	@Before
 	public void setUp()
 	{
 		client = mock(Client.class);
 		itemManager = mock(ItemManager.class);
+		cache = new CollectionLogCacheMock(client, itemManager);
 	}
 
 	@Test
 	public void countsTheProspectorKitListedOnTwoPagesUnderTwoIdsAsOneSlotUnderTheLowestId()
 	{
-		logPages(client, new int[]{12013}, new int[]{29472});
-		item(itemManager, 12013, "Prospector helmet");
-		item(itemManager, 29472, "Prospector helmet");
+		cache.logPages(new int[]{12013}, new int[]{29472});
+		cache.item(12013, "Prospector helmet");
+		cache.item(29472, "Prospector helmet");
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -42,9 +41,9 @@ public class CollectionLogSlotsTest
 	@Test
 	public void keepsGracefulPiecesFromDifferentCoursesApartSinceTheirColoursDiffer()
 	{
-		logPages(client, new int[]{11850}, new int[]{21061});
-		item(itemManager, 11850, "Graceful hood", 1000, new short[]{1});
-		item(itemManager, 21061, "Graceful hood", 1000, new short[]{2});
+		cache.logPages(new int[]{11850}, new int[]{21061});
+		cache.item(11850, "Graceful hood", 1000, new short[]{1});
+		cache.item(21061, "Graceful hood", 1000, new short[]{2});
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -55,9 +54,9 @@ public class CollectionLogSlotsTest
 	@Test
 	public void keepsSameNameItemsWithADifferentModelApart()
 	{
-		logPages(client, new int[]{100}, new int[]{200});
-		item(itemManager, 100, "Medallion fragment", 1000, null);
-		item(itemManager, 200, "Medallion fragment", 2000, null);
+		cache.logPages(new int[]{100}, new int[]{200});
+		cache.item(100, "Medallion fragment", 1000, null);
+		cache.item(200, "Medallion fragment", 2000, null);
 
 		assertEquals(2, CollectionLogSlots.read(client, itemManager).count());
 	}
@@ -65,8 +64,8 @@ public class CollectionLogSlotsTest
 	@Test
 	public void fallsBackToOneSlotPerItemWhenAPageOfTheLogIsMissingFromTheCache()
 	{
-		logPages(client, new int[]{21992});
-		when(client.getEnum(2109)).thenReturn(null);
+		cache.logPages(new int[]{21992});
+		when(client.getEnum(CollectionLogCacheMock.FIRST_PAGE_ITEMS)).thenReturn(null);
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -77,9 +76,9 @@ public class CollectionLogSlotsTest
 	@Test
 	public void keepsLookAlikeItemsOnTheSamePageApart()
 	{
-		logPages(client, new int[]{24763, 24765});
-		item(itemManager, 24763, "Mysterious page");
-		item(itemManager, 24765, "Mysterious page");
+		cache.logPages(new int[]{24763, 24765});
+		cache.item(24763, "Mysterious page");
+		cache.item(24765, "Mysterious page");
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -90,10 +89,10 @@ public class CollectionLogSlotsTest
 	@Test
 	public void keepsALookAlikeApartWhenItSharesAPageWithAnyItemOfTheSlot()
 	{
-		logPages(client, new int[]{100, 300}, new int[]{200});
-		item(itemManager, 100, "Rum");
-		item(itemManager, 200, "Rum");
-		item(itemManager, 300, "Rum");
+		cache.logPages(new int[]{100, 300}, new int[]{200});
+		cache.item(100, "Rum");
+		cache.item(200, "Rum");
+		cache.item(300, "Rum");
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -105,8 +104,8 @@ public class CollectionLogSlotsTest
 	@Test
 	public void countsAnItemShownOnSeveralPagesUnderOneIdOnce()
 	{
-		logPages(client, new int[]{4151}, new int[]{4151});
-		item(itemManager, 4151, "Abyssal whip");
+		cache.logPages(new int[]{4151}, new int[]{4151});
+		cache.item(4151, "Abyssal whip");
 
 		assertEquals(1, CollectionLogSlots.read(client, itemManager).count());
 	}
@@ -114,9 +113,9 @@ public class CollectionLogSlotsTest
 	@Test
 	public void countsAnItemUnderTheIdTheLogShowsForIt()
 	{
-		replacement(client, 10859, 25617);
-		logPages(client, new int[]{10859});
-		item(itemManager, 25617, "Tea flask");
+		cache.replacement(10859, 25617);
+		cache.logPages(new int[]{10859});
+		cache.item(25617, "Tea flask");
 
 		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
 
@@ -127,8 +126,8 @@ public class CollectionLogSlotsTest
 	@Test
 	public void findsNoSlotForAnItemThatIsNotInTheLog()
 	{
-		logPages(client, new int[]{21992});
-		item(itemManager, 21992, "Vorki");
+		cache.logPages(new int[]{21992});
+		cache.item(21992, "Vorki");
 
 		assertNull(CollectionLogSlots.read(client, itemManager).slotOf(995));
 	}

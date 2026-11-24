@@ -70,16 +70,13 @@ public class ActivityFormatter
 		return snapshot(PostKind.CA_SNAPSHOT, account, accountHash, tasks, at);
 	}
 
-	/**
-	 * Game count and Complete let the bot replace its stored list only with a capture that matches the game's own
-	 * count; they are part of the fingerprint, so the same items with a different verdict are sent again.
-	 */
+	/** Game count and Complete are part of the fingerprint, so the same items with a different verdict are sent again. */
 	public Snapshot clogSnapshot(String account, long accountHash, CapturedLog captured, Instant at)
 	{
 		Map<String, String> verdict = new LinkedHashMap<>();
 		verdict.put("Game count", String.valueOf(captured.getGameCount()));
 		verdict.put("Complete", captured.isComplete() ? "yes" : "no");
-		return snapshot(PostKind.CLOG_SNAPSHOT, account, accountHash, captured.getItems(), verdict, at);
+		return snapshot(PostKind.CLOG_SNAPSHOT, account, accountHash, new SnapshotContent(captured.getItems(), verdict), at);
 	}
 
 	public Snapshot pbSnapshot(String account, long accountHash, List<StoredPersonalBest> bests, Instant at)
@@ -113,7 +110,7 @@ public class ActivityFormatter
 
 	private Snapshot snapshot(PostKind kind, String account, long accountHash, List<?> entries, Instant at)
 	{
-		return snapshot(kind, account, accountHash, entries, Map.of(), at);
+		return snapshot(kind, account, accountHash, new SnapshotContent(entries, Map.of()), at);
 	}
 
 	/**
@@ -121,15 +118,23 @@ public class ActivityFormatter
 	 * counts as unchanged. Without extra fields it is the entries alone, which keeps the fingerprints of CA and PB
 	 * snapshots the bot already has, so they are not all sent again.
 	 */
-	private Snapshot snapshot(PostKind kind, String account, long accountHash, List<?> entries, Map<String, String> extra,
-		Instant at)
+	private Snapshot snapshot(PostKind kind, String account, long accountHash, SnapshotContent content, Instant at)
 	{
+		List<?> entries = content.getEntries();
+		Map<String, String> extra = content.getExtra();
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("Items", String.valueOf(entries.size()));
 		fields.putAll(extra);
 		PostPayload payload = new PostPayload(kind.getName(), Nonce.next(), account, String.valueOf(accountHash), at.toString(),
 			fields, entries, null);
-		String content = extra.isEmpty() ? gson.toJson(entries) : gson.toJson(entries) + "|" + gson.toJson(extra);
-		return new Snapshot(payload, DeliveredSnapshots.fingerprint(content));
+		String fingerprinted = extra.isEmpty() ? gson.toJson(entries) : gson.toJson(entries) + "|" + gson.toJson(extra);
+		return new Snapshot(payload, DeliveredSnapshots.fingerprint(fingerprinted));
+	}
+
+	@Value
+	private static class SnapshotContent
+	{
+		List<?> entries;
+		Map<String, String> extra;
 	}
 }

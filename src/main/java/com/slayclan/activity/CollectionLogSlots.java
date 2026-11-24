@@ -23,8 +23,8 @@ import net.runelite.client.game.ItemManager;
  * page and 29472-29478 on the Volcanic Mine page, and the game sends both while its own count holds one slot. Nothing
  * in the cache links the two, so ids that look exactly alike and never share a page count as one slot, under the
  * lowest id. Same-name slots that look different (the Graceful sets) or share a page (Ancient and Mysterious pages)
- * stay apart. Checked on every cache from 2024-10 to 2026-11: only the Prospector kit merges, and the slot count
- * equals the game's own total each time.
+ * stay apart. When a later game update adds a case this rule misses, the slot count no longer equals the game's own
+ * total, which the capture logs.
  */
 public class CollectionLogSlots
 {
@@ -41,6 +41,11 @@ public class CollectionLogSlots
 	{
 		this.replacements = replacements;
 		this.slotOfId = slotOfId;
+	}
+
+	public static CollectionLogSlots unknown()
+	{
+		return new CollectionLogSlots(Map.of(), Map.of());
 	}
 
 	public static CollectionLogSlots read(Client client, ItemManager itemManager)
@@ -93,33 +98,43 @@ public class CollectionLogSlots
 	 */
 	private static Map<Integer, Set<Integer>> pagesOfLogIds(Client client, Map<Integer, Integer> replacements)
 	{
-		Map<Integer, Set<Integer>> pagesOfId = new TreeMap<>();
-		int[] tabs = enumValues(client, COLLECTION_LOG_TABS);
-		if (tabs == null)
+		List<Integer> pages = logPages(client);
+		if (pages == null)
 		{
 			return Map.of();
 		}
-		for (int tab : tabs)
+		Map<Integer, Set<Integer>> pagesOfId = new TreeMap<>();
+		for (int page : pages)
 		{
-			int[] pages = enumValues(client, structParam(client, tab, TAB_PAGES_PARAM));
-			if (pages == null)
+			int[] itemIds = enumValues(client, structParam(client, page, PAGE_ITEMS_PARAM));
+			if (itemIds == null)
 			{
 				return Map.of();
 			}
-			for (int page : pages)
-			{
-				int[] itemIds = enumValues(client, structParam(client, page, PAGE_ITEMS_PARAM));
-				if (itemIds == null)
-				{
-					return Map.of();
-				}
-				for (int itemId : itemIds)
-				{
-					pagesOfId.computeIfAbsent(replacements.getOrDefault(itemId, itemId), id -> new HashSet<>()).add(page);
-				}
-			}
+			Arrays.stream(itemIds).map(itemId -> replacements.getOrDefault(itemId, itemId))
+				.forEach(id -> pagesOfId.computeIfAbsent(id, i -> new HashSet<>()).add(page));
 		}
 		return pagesOfId;
+	}
+
+	private static List<Integer> logPages(Client client)
+	{
+		int[] tabs = enumValues(client, COLLECTION_LOG_TABS);
+		if (tabs == null)
+		{
+			return null;
+		}
+		List<Integer> pages = new ArrayList<>();
+		for (int tab : tabs)
+		{
+			int[] tabPages = enumValues(client, structParam(client, tab, TAB_PAGES_PARAM));
+			if (tabPages == null)
+			{
+				return null;
+			}
+			Arrays.stream(tabPages).forEach(pages::add);
+		}
+		return pages;
 	}
 
 	private static int[] enumValues(Client client, int enumId)
@@ -144,31 +159,38 @@ public class CollectionLogSlots
 		Map<Integer, Integer> slotOfId = new HashMap<>();
 		for (List<Integer> sameName : idsByName.values())
 		{
-			assignSlots(sameName, pagesOfId, itemManager, slotOfId);
+			SameNameSlots slots = new SameNameSlots(itemManager);
+			sameName.forEach(id -> slotOfId.put(id, slots.slotFor(id, pagesOfId.get(id))));
 		}
 		return slotOfId;
 	}
 
-	// Ids come in ascending order, so each slot is named by its lowest id
-	private static void assignSlots(List<Integer> sameName, Map<Integer, Set<Integer>> pagesOfId, ItemManager itemManager,
-		Map<Integer, Integer> slotOfId)
+	/** Ids must come in ascending order, so each slot is named by its lowest id. */
+	private static final class SameNameSlots
 	{
-		Map<Integer, Set<Integer>> pagesOfSlot = new HashMap<>();
-		for (int id : sameName)
+		private final ItemManager itemManager;
+		private final Map<Integer, Set<Integer>> pagesOfSlot = new HashMap<>();
+
+		private SameNameSlots(ItemManager itemManager)
 		{
-			Set<Integer> pages = pagesOfId.get(id);
-			Integer slot = pagesOfSlot.keySet().stream()
-				.filter(candidate -> isSameSlot(itemManager, candidate, pagesOfSlot.get(candidate), id, pages))
+			this.itemManager = itemManager;
+		}
+
+		int slotFor(int id, Set<Integer> pages)
+		{
+			int slot = pagesOfSlot.keySet().stream()
+				.filter(candidate -> isSameSlot(candidate, id, pages))
 				.min(Integer::compare)
 				.orElse(id);
 			pagesOfSlot.computeIfAbsent(slot, s -> new HashSet<>()).addAll(pages);
-			slotOfId.put(id, slot);
+			return slot;
 		}
-	}
 
-	private static boolean isSameSlot(ItemManager itemManager, int slot, Set<Integer> slotPages, int id, Set<Integer> pages)
-	{
-		return Collections.disjoint(slotPages, pages) && looksAlike(itemManager.getItemComposition(slot), itemManager.getItemComposition(id));
+		private boolean isSameSlot(int slot, int id, Set<Integer> pages)
+		{
+			return Collections.disjoint(pagesOfSlot.get(slot), pages)
+				&& looksAlike(itemManager.getItemComposition(slot), itemManager.getItemComposition(id));
+		}
 	}
 
 	private static boolean looksAlike(ItemComposition a, ItemComposition b)

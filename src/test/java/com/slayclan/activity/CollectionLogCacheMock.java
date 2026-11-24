@@ -13,14 +13,19 @@ final class CollectionLogCacheMock
 	private static final int TAB = 471;
 	private static final int TAB_PAGES = 2103;
 	private static final int FIRST_PAGE = 476;
-	private static final int FIRST_PAGE_ITEMS = 2109;
+	static final int FIRST_PAGE_ITEMS = 2109;
 
-	private CollectionLogCacheMock()
+	private final Client client;
+	private final ItemManager itemManager;
+
+	CollectionLogCacheMock(Client client, ItemManager itemManager)
 	{
+		this.client = client;
+		this.itemManager = itemManager;
 	}
 
 	/** One log tab whose pages hold the given item ids, page by page. */
-	static void logPages(Client client, int[]... pages)
+	void logPages(int[]... pages)
 	{
 		EnumComposition tabs = mock(EnumComposition.class);
 		when(tabs.getIntVals()).thenReturn(new int[]{TAB});
@@ -44,7 +49,7 @@ final class CollectionLogCacheMock
 		when(client.getEnum(TAB_PAGES)).thenReturn(pageEnum);
 	}
 
-	static void replacement(Client client, int from, int to)
+	void replacement(int from, int to)
 	{
 		EnumComposition replacements = mock(EnumComposition.class);
 		when(replacements.getKeys()).thenReturn(new int[]{from});
@@ -52,12 +57,12 @@ final class CollectionLogCacheMock
 		when(client.getEnum(CollectionLogSlots.ITEM_REPLACEMENTS)).thenReturn(replacements);
 	}
 
-	static void item(ItemManager itemManager, int id, String name)
+	void item(int id, String name)
 	{
-		item(itemManager, id, name, 1000, null);
+		item(id, name, 1000, null);
 	}
 
-	static void item(ItemManager itemManager, int id, String name, int model, short[] recolour)
+	void item(int id, String name, int model, short[] recolour)
 	{
 		ItemComposition item = mock(ItemComposition.class);
 		when(item.getName()).thenReturn(name);
