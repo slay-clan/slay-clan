@@ -118,7 +118,8 @@ public class ActivityFormatter
 
 	/**
 	 * The fingerprint covers the entries and the extra fields only, so a snapshot taken later with the same content
-	 * counts as unchanged. Without extra fields it is the entries alone, as before they existed.
+	 * counts as unchanged. Without extra fields it is the entries alone, which keeps the fingerprints of CA and PB
+	 * snapshots the bot already has, so they are not all sent again.
 	 */
 	private Snapshot snapshot(PostKind kind, String account, long accountHash, List<?> entries, Map<String, String> extra,
 		Instant at)

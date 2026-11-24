@@ -11,6 +11,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.Before;
 import org.junit.Test;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class CollectionLogSlotsTest
 {
@@ -49,6 +50,28 @@ public class CollectionLogSlotsTest
 
 		assertEquals(Integer.valueOf(21061), slots.slotOf(21061));
 		assertEquals(2, slots.count());
+	}
+
+	@Test
+	public void keepsSameNameItemsWithADifferentModelApart()
+	{
+		logPages(client, new int[]{100}, new int[]{200});
+		item(itemManager, 100, "Medallion fragment", 1000, null);
+		item(itemManager, 200, "Medallion fragment", 2000, null);
+
+		assertEquals(2, CollectionLogSlots.read(client, itemManager).count());
+	}
+
+	@Test
+	public void fallsBackToOneSlotPerItemWhenAPageOfTheLogIsMissingFromTheCache()
+	{
+		logPages(client, new int[]{21992});
+		when(client.getEnum(2109)).thenReturn(null);
+
+		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+
+		assertFalse(slots.isKnown());
+		assertEquals(Integer.valueOf(21992), slots.slotOf(21992));
 	}
 
 	@Test

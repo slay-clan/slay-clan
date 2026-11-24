@@ -39,6 +39,7 @@ public class CollectionLogCapture
 	private boolean captureAllowed;
 	private boolean capturing;
 	private int capturesThisLogin;
+	private CollectionLogSlots slotTable;
 	private final List<OwnedItem> items = new ArrayList<>();
 	private int captureStartTick = -1;
 	private int lastTransmitTick = -1;
@@ -54,6 +55,7 @@ public class CollectionLogCapture
 	{
 		captureAllowed = true;
 		capturesThisLogin = 0;
+		slotTable = null;
 		reset();
 	}
 
@@ -98,15 +100,17 @@ public class CollectionLogCapture
 		{
 			log.debug("Collection log capture got no items, allowing the next opening to try again");
 			reset();
-			captureAllowed = true;
+			retryAtNextOpening();
 			return Optional.empty();
 		}
 		if (!captureSettled(tick))
 		{
 			return Optional.empty();
 		}
-		CapturedLog captured = new CapturedLog(slotItems(), client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
+		// Reset first, so a capture that fails while folding is not retried on every tick
+		List<OwnedItem> transmitted = new ArrayList<>(items);
 		reset();
+		CapturedLog captured = new CapturedLog(slotItems(transmitted), client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 		if (!captured.isComplete())
 		{
 			log.info("Collection log capture holds {} slots while the game counts {}", captured.getItems().size(), captured.getGameCount());
@@ -135,18 +139,19 @@ public class CollectionLogCapture
 	 * One entry per log slot, as the game counts them. The game sends an item once per page it appears on, and the
 	 * Prospector kit under a second id (see {@link CollectionLogSlots}).
 	 */
-	private List<OwnedItem> slotItems()
+	private List<OwnedItem> slotItems(List<OwnedItem> transmitted)
 	{
-		CollectionLogSlots slots = CollectionLogSlots.read(client, itemManager);
+		CollectionLogSlots slots = slotTable();
 		logWhenCacheDisagreesWithGame(slots);
 		Map<Integer, OwnedItem> bySlot = new LinkedHashMap<>();
-		for (OwnedItem item : items)
+		for (OwnedItem item : transmitted)
 		{
 			Integer slot = slots.slotOf(item.getId());
 			if (slot == null)
 			{
-				log.debug("Collection log item {} ({}) is in no log slot, left out", item.getId(), item.getName());
-				continue;
+				// Kept, so the item still counts for tasks; the capture then no longer matches the game and is marked so
+				log.info("Collection log item {} ({}) is on no log page in the cache", item.getId(), item.getName());
+				slot = item.getId();
 			}
 			if (higherQuantityThanKnown(item, bySlot.get(slot)))
 			{
@@ -154,6 +159,18 @@ public class CollectionLogCapture
 			}
 		}
 		return new ArrayList<>(bySlot.values());
+	}
+
+	// The slots only change with the game cache, so they are read once per login, or again while the cache had no log
+	private CollectionLogSlots slotTable()
+	{
+		if (slotTable == null || !slotTable.isKnown())
+		{
+			long start = System.nanoTime();
+			slotTable = CollectionLogSlots.read(client, itemManager);
+			log.debug("Collection log slots read in {} ms", (System.nanoTime() - start) / 1_000_000);
+		}
+		return slotTable;
 	}
 
 	// A new pair of look-alike ids the slot rule does not cover would show up here first

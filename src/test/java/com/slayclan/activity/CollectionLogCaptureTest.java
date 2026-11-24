@@ -16,6 +16,7 @@ import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.game.ItemManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
@@ -95,7 +96,7 @@ public class CollectionLogCaptureTest
 	}
 
 	@Test
-	public void leavesOutAnItemThatIsInNoLogSlot()
+	public void keepsAnItemOnNoLogPageAndMarksTheCaptureAsNotMatchingTheGame()
 	{
 		logPages(client, new int[]{21992});
 		item(itemManager, 995, "Coins");
@@ -103,7 +104,37 @@ public class CollectionLogCaptureTest
 		capture.onScriptPreFired(transmit(21992, 1));
 		capture.onScriptPreFired(transmit(995, 1));
 
-		assertEquals(List.of(new OwnedItem(21992, "Vorki", 1)), captured().getItems());
+		CapturedLog log = captured();
+
+		assertEquals(List.of(new OwnedItem(21992, "Vorki", 1), new OwnedItem(995, "Coins", 1)), log.getItems());
+		assertFalse(log.isComplete());
+	}
+
+	@Test
+	public void aCaptureThatFailsWhileSortingIntoSlotsIsDroppedOnceInsteadOfFailingEveryTick()
+	{
+		logPages(client, new int[]{21992});
+		ItemComposition vorki = itemManager.getItemComposition(21992);
+		when(itemManager.getItemComposition(21992)).thenReturn(vorki).thenThrow(new IllegalStateException("cache"));
+		openLog();
+		capture.onScriptPreFired(transmit(21992, 1));
+
+		assertThrows(IllegalStateException.class, () -> capture.onTick(102));
+		assertFalse(capture.onTick(103).isPresent());
+	}
+
+	@Test
+	public void openingsWhereTheLogSentNothingCountTowardsTheCapturesAllowedPerLogin()
+	{
+		for (int i = 0; i < CollectionLogCapture.MAX_CAPTURES_PER_LOGIN; i++)
+		{
+			openLog();
+			capture.onTick(100 + CollectionLogCapture.NO_ITEMS_TIMEOUT_TICKS + 1);
+		}
+
+		openLog();
+
+		verify(client, times(CollectionLogCapture.MAX_CAPTURES_PER_LOGIN)).runScript(anyInt());
 	}
 
 	@Test

@@ -12,6 +12,7 @@ import java.util.TreeMap;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.StructComposition;
 import net.runelite.client.game.ItemManager;
 
 /**
@@ -86,26 +87,51 @@ public class CollectionLogSlots
 		return ids;
 	}
 
+	/**
+	 * Empty when any part of the log is missing from the cache, for example after a game update moved a param, so the
+	 * capture then falls back to one slot per id instead of trusting half a log.
+	 */
 	private static Map<Integer, Set<Integer>> pagesOfLogIds(Client client, Map<Integer, Integer> replacements)
 	{
 		Map<Integer, Set<Integer>> pagesOfId = new TreeMap<>();
-		EnumComposition tabs = client.getEnum(COLLECTION_LOG_TABS);
+		int[] tabs = enumValues(client, COLLECTION_LOG_TABS);
 		if (tabs == null)
 		{
-			return pagesOfId;
+			return Map.of();
 		}
-		for (int tab : tabs.getIntVals())
+		for (int tab : tabs)
 		{
-			EnumComposition pages = client.getEnum(client.getStructComposition(tab).getIntValue(TAB_PAGES_PARAM));
-			for (int page : pages.getIntVals())
+			int[] pages = enumValues(client, structParam(client, tab, TAB_PAGES_PARAM));
+			if (pages == null)
 			{
-				for (int itemId : client.getEnum(client.getStructComposition(page).getIntValue(PAGE_ITEMS_PARAM)).getIntVals())
+				return Map.of();
+			}
+			for (int page : pages)
+			{
+				int[] itemIds = enumValues(client, structParam(client, page, PAGE_ITEMS_PARAM));
+				if (itemIds == null)
+				{
+					return Map.of();
+				}
+				for (int itemId : itemIds)
 				{
 					pagesOfId.computeIfAbsent(replacements.getOrDefault(itemId, itemId), id -> new HashSet<>()).add(page);
 				}
 			}
 		}
 		return pagesOfId;
+	}
+
+	private static int[] enumValues(Client client, int enumId)
+	{
+		EnumComposition values = enumId < 0 ? null : client.getEnum(enumId);
+		return values == null ? null : values.getIntVals();
+	}
+
+	private static int structParam(Client client, int structId, int param)
+	{
+		StructComposition struct = client.getStructComposition(structId);
+		return struct == null ? -1 : struct.getIntValue(param);
 	}
 
 	private static Map<Integer, Integer> slotsOf(Map<Integer, Set<Integer>> pagesOfId, ItemManager itemManager)
