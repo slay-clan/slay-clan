@@ -29,6 +29,7 @@ import com.slayclan.discord.GameViewWatch;
 import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
+import com.slayclan.discord.PostProblems;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
@@ -1687,7 +1688,19 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private void postWithScreenshot(BotTarget target, List<PostPayload> posts)
 	{
 		Account account = playingAccount();
-		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, account.stamp(payload), png)));
+		screenshotService.capture(png ->
+		{
+			if (png == null)
+			{
+				clientThread.invoke(() -> warnInChat("Slay Clan: the screenshot failed, this post was sent without one."));
+			}
+			posts.forEach(payload -> activityReporter.send(target, withScreenshotOutcome(account.stamp(payload), png), png));
+		});
+	}
+
+	private static PostPayload withScreenshotOutcome(PostPayload payload, byte[] png)
+	{
+		return png == null ? PostProblems.with(payload, PostProblems.SCREENSHOT_FAILED) : payload;
 	}
 
 	// The account is read on the client thread and the queue in the profile on the executor; each account retries

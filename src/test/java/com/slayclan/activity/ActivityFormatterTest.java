@@ -1,5 +1,6 @@
 package com.slayclan.activity;
 
+import com.slayclan.PluginVersion;
 import com.google.gson.Gson;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.trigger.TimedLine.Kind;
@@ -53,6 +54,7 @@ public class ActivityFormatterTest
 			"CA completed", "41/38/22/9/3/0",
 			"CA points", "234",
 			"CA tier status", "2/2/2/0/0/0",
+			"Plugin version", PluginVersion.VERSION,
 			"Log slots", "141/1717",
 			"Log categories", "60/600, 10/100, 20/200, 30/300, 21/517"), post.getFields());
 	}

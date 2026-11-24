@@ -271,6 +271,36 @@ public class PendingPostStoreTest
 		assertEquals(1, store.load(42, NOW).size());
 	}
 
+	@Test
+	public void aFailedResendIsCountedSoTheNextOneSaysWhichTryItIs()
+	{
+		profile();
+		store.add(postOf("42"), NOW, false);
+
+		store.countFailedSend(store.load(42, NOW).get(0));
+
+		assertEquals(3, store.load(42, NOW).get(0).nextTry());
+	}
+
+	@Test
+	public void aPostDeliveredByOneClientLeavesTheQueueEvenWhenAnotherClientCountedAFailedSendMeanwhile()
+	{
+		Map<String, String> profile = profile();
+		store.add(postOf("42"), NOW, false);
+		PendingPost loadedByThisClient = store.load(42, NOW).get(0);
+		store.countFailedSend(loadedByThisClient);
+
+		store.remove(loadedByThisClient);
+
+		assertFalse(profile.containsKey("pendingPosts.42"));
+	}
+
+	@Test
+	public void aPostKeptBeforeSendsWereCountedIsResentAsTheSecondTry()
+	{
+		assertEquals(2, new PendingPost(NOW.toString(), payload, null, false, 0).nextTry());
+	}
+
 	private PostPayload postOf(String accountHash)
 	{
 		return payload.withAccountHash(accountHash).withNonce("0123456789abcd" + accountHash.charAt(0) + "0");

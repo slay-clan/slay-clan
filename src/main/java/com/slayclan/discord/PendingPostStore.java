@@ -84,12 +84,36 @@ public class PendingPostStore
 	{
 		List<PendingPost> stored = loadFresh(key, Instant.now());
 		List<PendingPost> kept = stored.stream()
-			.filter(other -> !other.equals(post))
+			.filter(other -> !isSamePost(other, post))
 			.collect(Collectors.toList());
 		if (kept.size() < stored.size())
 		{
 			save(key, kept);
 		}
+	}
+
+	/** Counts a send that failed again, in whichever queue the post waits in. */
+	public synchronized void countFailedSend(PendingPost post)
+	{
+		String ownQueue = queueKey(post.getPayload().getAccountHash());
+		countFailedSendIn(ownQueue, post);
+		if (!ownQueue.equals(KEY))
+		{
+			countFailedSendIn(KEY, post);
+		}
+	}
+
+	private void countFailedSendIn(String key, PendingPost post)
+	{
+		List<PendingPost> stored = loadFresh(key, Instant.now());
+		if (stored.stream().noneMatch(other -> isSamePost(other, post)))
+		{
+			return;
+		}
+		List<PendingPost> counted = stored.stream()
+			.map(other -> isSamePost(other, post) ? other.withFailedSends(other.nextTry()) : other)
+			.collect(Collectors.toList());
+		save(key, counted);
 	}
 
 	private List<PendingPost> loadFresh(String key, Instant now)
@@ -105,6 +129,12 @@ public class PendingPostStore
 			save(key, fresh);
 		}
 		return fresh;
+	}
+
+	// By nonce, since another client on the profile may have counted a failed send on the stored copy meanwhile
+	private static boolean isSamePost(PendingPost stored, PendingPost post)
+	{
+		return stored.getPayload().getNonce().equals(post.getPayload().getNonce());
 	}
 
 	private static String queueKey(String accountHash)

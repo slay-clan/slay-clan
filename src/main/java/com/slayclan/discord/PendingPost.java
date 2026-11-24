@@ -2,6 +2,7 @@ package com.slayclan.discord;
 
 import lombok.AllArgsConstructor;
 import lombok.Value;
+import lombok.With;
 
 /**
  * A post the bot could not take and that is retried later. Its screenshot is too large to keep in the profile,
@@ -16,6 +17,9 @@ public class PendingPost
 	PostPayload payload;
 	String taskId;
 	boolean screenshotKept;
+	// Posts kept before sends were counted read back as 0
+	@With
+	int failedSends;
 
 	public PendingPost(String createdAt, PostPayload payload)
 	{
@@ -24,6 +28,12 @@ public class PendingPost
 
 	public PendingPost(String createdAt, PostPayload payload, boolean screenshotKept)
 	{
-		this(createdAt, payload, payload.getTaskId(), screenshotKept);
+		this(createdAt, payload, payload.getTaskId(), screenshotKept, 1);
+	}
+
+	/** The number of the next send, counting the first one that failed. */
+	public int nextTry()
+	{
+		return Math.max(1, failedSends) + 1;
 	}
 }
