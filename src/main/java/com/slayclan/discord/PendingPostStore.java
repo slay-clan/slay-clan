@@ -15,9 +15,11 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.config.ConfigManager;
 
 /**
- * Posts that could not be delivered, kept in the profile. Several deliveries finish on different threads at
- * once, so every read-modify-write is synchronized. Posts that fall out of the queue are counted so the
- * player can be told to submit them manually.
+ * Posts that could not be delivered, kept in the profile with one queue per game account. Several clients can
+ * share the profile while playing different accounts, and each must neither send nor overwrite the other's
+ * queue. Posts without an account, and those kept before the queues were split, stay in the shared queue that
+ * every account retries. Several deliveries finish on different threads at once, so every read-modify-write is
+ * synchronized. Posts that fall out of a queue are counted so the player can be told to submit them manually.
  */
 @Slf4j
 @Singleton
@@ -26,6 +28,7 @@ public class PendingPostStore
 	static final int MAX_POSTS = 20;
 	static final Duration MAX_AGE = Duration.ofDays(7);
 	private static final String KEY = "pendingPosts";
+	private static final long UNKNOWN_ACCOUNT = -1;
 	private static final String DROPPED_KEY = "droppedPosts";
 	// Estimates how many posts an unreadable queue held
 	private static final String CREATED_AT_FIELD = "\"createdAt\"";
@@ -40,9 +43,58 @@ public class PendingPostStore
 		this.gson = gson;
 	}
 
-	public synchronized List<PendingPost> load(Instant now)
+	/** The shared queue first, then the account's own; an unknown account (-1) gets the shared queue only. */
+	public synchronized List<PendingPost> load(long accountHash, Instant now)
 	{
-		List<PendingPost> stored = loadAll();
+		List<PendingPost> posts = new ArrayList<>(loadFresh(KEY, now));
+		if (accountHash != UNKNOWN_ACCOUNT)
+		{
+			posts.addAll(loadFresh(queueKey(String.valueOf(accountHash)), now));
+		}
+		return posts;
+	}
+
+	/** Returns the posts this one pushed out of a full queue, so what else was kept for them can go too. */
+	public synchronized List<PendingPost> add(PostPayload payload, Instant createdAt, boolean screenshotKept)
+	{
+		String key = queueKey(payload.getAccountHash());
+		List<PendingPost> posts = new ArrayList<>(loadFresh(key, createdAt));
+		posts.add(new PendingPost(createdAt.toString(), payload, screenshotKept));
+		int pushedOut = Math.max(0, posts.size() - MAX_POSTS);
+		if (pushedOut > 0)
+		{
+			countDropped(pushedOut);
+		}
+		save(key, posts.subList(pushedOut, posts.size()));
+		return List.copyOf(posts.subList(0, pushedOut));
+	}
+
+	/** From the post's own queue and from the shared one, where posts kept before the split carry an account too. */
+	public synchronized void remove(PendingPost post)
+	{
+		String ownQueue = queueKey(post.getPayload().getAccountHash());
+		removeFrom(ownQueue, post);
+		if (!ownQueue.equals(KEY))
+		{
+			removeFrom(KEY, post);
+		}
+	}
+
+	private void removeFrom(String key, PendingPost post)
+	{
+		List<PendingPost> stored = loadFresh(key, Instant.now());
+		List<PendingPost> kept = stored.stream()
+			.filter(other -> !other.equals(post))
+			.collect(Collectors.toList());
+		if (kept.size() < stored.size())
+		{
+			save(key, kept);
+		}
+	}
+
+	private List<PendingPost> loadFresh(String key, Instant now)
+	{
+		List<PendingPost> stored = loadAll(key);
 		Instant oldest = now.minus(MAX_AGE);
 		List<PendingPost> fresh = stored.stream()
 			.filter(post -> isNewerThan(post, oldest))
@@ -50,31 +102,14 @@ public class PendingPostStore
 		if (fresh.size() < stored.size())
 		{
 			countDropped(stored.size() - fresh.size());
-			save(fresh);
+			save(key, fresh);
 		}
 		return fresh;
 	}
 
-	/** Returns the posts this one pushed out of a full queue, so what else was kept for them can go too. */
-	public synchronized List<PendingPost> add(PostPayload payload, Instant createdAt, boolean screenshotKept)
+	private static String queueKey(String accountHash)
 	{
-		List<PendingPost> posts = new ArrayList<>(load(createdAt));
-		posts.add(new PendingPost(createdAt.toString(), payload, screenshotKept));
-		int pushedOut = Math.max(0, posts.size() - MAX_POSTS);
-		if (pushedOut > 0)
-		{
-			countDropped(pushedOut);
-		}
-		save(posts.subList(pushedOut, posts.size()));
-		return List.copyOf(posts.subList(0, pushedOut));
-	}
-
-	public synchronized void remove(PendingPost post)
-	{
-		List<PendingPost> posts = load(Instant.now()).stream()
-			.filter(other -> !other.equals(post))
-			.collect(Collectors.toList());
-		save(posts);
+		return accountHash == null || accountHash.isEmpty() ? KEY : KEY + "." + accountHash;
 	}
 
 	/**
@@ -100,9 +135,9 @@ public class PendingPostStore
 		}
 	}
 
-	private List<PendingPost> loadAll()
+	private List<PendingPost> loadAll(String key)
 	{
-		String stored = configManager.getConfiguration(SlayClanConfig.MEMORY_GROUP, KEY);
+		String stored = configManager.getConfiguration(SlayClanConfig.MEMORY_GROUP, key);
 		if (stored == null || stored.isEmpty())
 		{
 			return Collections.emptyList();
@@ -114,7 +149,7 @@ public class PendingPostStore
 		catch (RuntimeException e)
 		{
 			log.warn("Discarding unreadable pending posts", e);
-			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, KEY);
+			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
 			countDropped(Math.max(1, occurrences(stored, CREATED_AT_FIELD)));
 			return Collections.emptyList();
 		}
@@ -150,15 +185,15 @@ public class PendingPostStore
 		configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, DROPPED_KEY, String.valueOf(droppedCount() + count));
 	}
 
-	private void save(List<PendingPost> posts)
+	private void save(String key, List<PendingPost> posts)
 	{
 		if (posts.isEmpty())
 		{
-			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, KEY);
+			configManager.unsetConfiguration(SlayClanConfig.MEMORY_GROUP, key);
 		}
 		else
 		{
-			configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, KEY, gson.toJson(posts));
+			configManager.setConfiguration(SlayClanConfig.MEMORY_GROUP, key, gson.toJson(posts));
 		}
 	}
 }

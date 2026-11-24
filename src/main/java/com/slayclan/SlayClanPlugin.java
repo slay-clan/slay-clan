@@ -1690,11 +1690,22 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		screenshotService.capture(png -> posts.forEach(payload -> activityReporter.send(target, account.stamp(payload), png)));
 	}
 
+	// The account is read on the client thread and the queue in the profile on the executor; each account retries
+	// only its own queue and the shared one
+	private void retryPendingPosts()
+	{
+		clientThread.invoke(() ->
+		{
+			long accountHash = client.getAccountHash();
+			executor.execute(() -> retryPendingPostsOf(accountHash));
+		});
+	}
+
 	/**
 	 * Only one retry round runs at a time, otherwise two rounds started close together would both deliver the
 	 * same post.
 	 */
-	private void retryPendingPosts()
+	private void retryPendingPostsOf(long accountHash)
 	{
 		RemoteConfig remoteConfig = remoteConfigService.current();
 		if (!canPost() || remoteConfig == null || !retryInProgress.compareAndSet(false, true))
@@ -1703,7 +1714,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 		try
 		{
-			activityReporter.retry(this::botTarget, pendingPostStore.load(Instant.now()))
+			activityReporter.retry(this::botTarget, pendingPostStore.load(accountHash, Instant.now()))
 				.whenComplete((ignored, error) -> retryInProgress.set(false));
 		}
 		catch (RuntimeException e)
