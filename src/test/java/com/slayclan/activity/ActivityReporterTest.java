@@ -288,7 +288,7 @@ public class ActivityReporterTest
 	@Test
 	public void sendsAChangedSnapshotWithItsEntriesAndRemembersIt()
 	{
-		reporter.reportClogSnapshot(TARGET, "Clanmate", ACCOUNT, List.of(new OwnedItem(21992, "Vorki", 1)));
+		reporter.reportClogSnapshot(TARGET, "Clanmate", ACCOUNT, new CapturedLog(List.of(new OwnedItem(21992, "Vorki", 1)), 1));
 
 		ArgumentCaptor<PostPayload> payload = ArgumentCaptor.forClass(PostPayload.class);
 		verify(botClient).send(eq(TARGET), payload.capture(), isNull());

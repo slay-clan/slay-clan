@@ -9,6 +9,7 @@ import com.slayclan.activity.CollectionLogReader;
 import com.slayclan.activity.CombatAchievementReader;
 import com.slayclan.activity.DeliveredSnapshots;
 import com.slayclan.activity.ItemNameIndex;
+import com.slayclan.activity.CapturedLog;
 import com.slayclan.activity.OwnedItem;
 import com.slayclan.activity.PersonalBestClaim;
 import com.slayclan.activity.PersonalBestReader;
@@ -759,7 +760,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		return tick - loginTick >= BASELINE_DELAY_TICKS && client.getAccountHash() != -1 && !account().isEmpty();
 	}
 
-	private void onCollectionLogCaptured(List<OwnedItem> items)
+	private void onCollectionLogCaptured(CapturedLog captured)
 	{
 		if (!canPostForClan())
 		{
@@ -769,9 +770,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		BotTarget target = target();
 		if (target != null)
 		{
-			activityReporter.reportClogSnapshot(target, account(), client.getAccountHash(), items);
+			activityReporter.reportClogSnapshot(target, account(), client.getAccountHash(), captured);
 		}
-		checkClogTasksOnWholeLog(items);
+		checkClogTasksOnWholeLog(captured.getItems());
 	}
 
 	/**

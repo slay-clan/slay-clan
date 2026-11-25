@@ -156,9 +156,9 @@ public class ActivityReporter
 		sendIfChanged(target, PostKind.CA_SNAPSHOT, accountHash, formatter.caSnapshot(account, accountHash, tasks, Instant.now()));
 	}
 
-	public void reportClogSnapshot(BotTarget target, String account, long accountHash, List<OwnedItem> items)
+	public void reportClogSnapshot(BotTarget target, String account, long accountHash, CapturedLog captured)
 	{
-		sendIfChanged(target, PostKind.CLOG_SNAPSHOT, accountHash, formatter.clogSnapshot(account, accountHash, items, Instant.now()));
+		sendIfChanged(target, PostKind.CLOG_SNAPSHOT, accountHash, formatter.clogSnapshot(account, accountHash, captured, Instant.now()));
 	}
 
 	public void reportPbSnapshot(BotTarget target, String account, long accountHash, List<StoredPersonalBest> bests)
