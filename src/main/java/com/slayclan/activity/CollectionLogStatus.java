@@ -13,6 +13,15 @@ public class CollectionLogStatus
 	int[] categoryObtained;
 	int[] categoryMax;
 
+	/**
+	 * The server sends the log counts only while Character summary is shown, so after a login on another tab they all
+	 * read 0 until the player opens that tab.
+	 */
+	public boolean isSentByGame()
+	{
+		return max > 0;
+	}
+
 	public String slotsText()
 	{
 		return obtained + "/" + max;

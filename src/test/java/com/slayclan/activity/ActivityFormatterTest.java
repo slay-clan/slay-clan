@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
@@ -58,16 +59,43 @@ public class ActivityFormatterTest
 	}
 
 	@Test
-	public void clogSnapshotCarriesTheItemsInline()
+	public void statusLeavesOutTheLogCountsWhileTheGameHasNotSentThem()
 	{
-		ActivityFormatter.Snapshot snapshot = formatter.clogSnapshot("Clanmate", 42L, List.of(new OwnedItem(21992, "Vorki", 1)), AT);
+		CombatAchievementStatus ca = new CombatAchievementStatus(new int[]{41, 38, 22, 9, 3, 0}, new int[]{2, 2, 2, 0, 0, 0});
+		CollectionLogStatus clog = new CollectionLogStatus(0, 0, new int[5], new int[5]);
+
+		PostPayload post = formatter.status("Clanmate", ca, clog, AT);
+
+		assertEquals(Map.of(
+			"CA completed", "41/38/22/9/3/0",
+			"CA points", "234",
+			"CA tier status", "2/2/2/0/0/0"), post.getFields());
+	}
+
+	@Test
+	public void clogSnapshotCarriesTheItemsInlineWithTheGameCountAndWhetherItMatches()
+	{
+		ActivityFormatter.Snapshot snapshot = formatter.clogSnapshot("Clanmate", 42L,
+			new CapturedLog(List.of(new OwnedItem(21992, "Vorki", 1)), 1), AT);
 
 		PostPayload post = snapshot.getPayload();
 		assertEquals("clog-snapshot", post.getKind());
 		assertEquals("42", post.getAccountHash());
 		assertEquals("2026-10-16T20:00:00Z", post.getAt());
-		assertEquals(Map.of("Items", "1"), post.getFields());
+		assertEquals(Map.of("Items", "1", "Game count", "1", "Complete", "yes"), post.getFields());
 		assertEquals("[{\"id\":21992,\"name\":\"Vorki\",\"quantity\":1}]", gson.toJson(post.getEntries()));
+	}
+
+	@Test
+	public void clogSnapshotWithTheSameItemsButAnotherVerdictIsSentAgain()
+	{
+		List<OwnedItem> items = List.of(new OwnedItem(21992, "Vorki", 1));
+
+		ActivityFormatter.Snapshot incomplete = formatter.clogSnapshot("Clanmate", 42L, new CapturedLog(items, 2), AT);
+		ActivityFormatter.Snapshot complete = formatter.clogSnapshot("Clanmate", 42L, new CapturedLog(items, 1), AT);
+
+		assertEquals("no", incomplete.getPayload().getFields().get("Complete"));
+		assertNotEquals(incomplete.getFingerprint(), complete.getFingerprint());
 	}
 
 	@Test
