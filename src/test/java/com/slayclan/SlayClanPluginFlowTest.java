@@ -91,6 +91,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -383,11 +384,23 @@ public class SlayClanPluginFlowTest
 	}
 
 	@Test
+	public void retriesThePostsKeptForTheAccountThatIsLoggedIn()
+	{
+		tasks();
+
+		login();
+		ticks(16);
+
+		verify(pendingPostStore, atLeastOnce()).load(eq(1L), any());
+		verify(pendingPostStore, never()).load(eq(2L), any());
+	}
+
+	@Test
 	public void runsOneRetryRoundAtATime()
 	{
 		tasks();
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
-		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		when(pendingPostStore.load(anyLong(), any())).thenReturn(List.of(pending));
 		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(new CompletableFuture<>());
 
 		login();
@@ -403,7 +416,7 @@ public class SlayClanPluginFlowTest
 	{
 		tasks();
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
-		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		when(pendingPostStore.load(anyLong(), any())).thenReturn(List.of(pending));
 		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered(null)));
 
 		login();
@@ -419,7 +432,7 @@ public class SlayClanPluginFlowTest
 	{
 		tasks();
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Old post"));
-		when(pendingPostStore.load(any())).thenThrow(new IllegalStateException("broken")).thenReturn(List.of(pending));
+		when(pendingPostStore.load(anyLong(), any())).thenThrow(new IllegalStateException("broken")).thenReturn(List.of(pending));
 
 		login();
 		ticks(16);
@@ -1093,7 +1106,7 @@ public class SlayClanPluginFlowTest
 	{
 		tasks();
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"));
-		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		when(pendingPostStore.load(anyLong(), any())).thenReturn(List.of(pending));
 		when(config.botUrl()).thenReturn("https://moved.example/api/v1/posts");
 
 		login();
@@ -1109,7 +1122,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 		PendingPost pending = new PendingPost(Instant.now().toString(), payload("Kept clog"));
-		when(pendingPostStore.load(any())).thenReturn(List.of(pending));
+		when(pendingPostStore.load(anyLong(), any())).thenReturn(List.of(pending));
 		when(config.botUrl()).thenReturn("https://moved.example/api/v1/posts");
 
 		ConfigChanged change = new ConfigChanged();
