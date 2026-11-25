@@ -1585,6 +1585,7 @@ public class SlayClanPluginFlowTest
 			int id = 2000 + i;
 			ItemComposition composition = mock(ItemComposition.class);
 			when(composition.getName()).thenReturn(itemNames[i]);
+			when(composition.getMembersName()).thenReturn(itemNames[i]);
 			when(itemManager.getItemComposition(id)).thenReturn(composition);
 			ScriptEvent event = mock(ScriptEvent.class);
 			when(event.getArguments()).thenReturn(new Object[]{0, id, 1});

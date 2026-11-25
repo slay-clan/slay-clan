@@ -57,8 +57,11 @@ public class ActivityFormatter
 		fields.put("CA completed", ca.completedText());
 		fields.put("CA points", String.valueOf(ca.points()));
 		fields.put("CA tier status", ca.tierStatusText());
-		fields.put("Log slots", clog.slotsText());
-		fields.put("Log categories", clog.categoriesText());
+		if (clog.isSentByGame())
+		{
+			fields.put("Log slots", clog.slotsText());
+			fields.put("Log categories", clog.categoriesText());
+		}
 		return MessageFormatter.payload(PostKind.STATUS, account, fields, at);
 	}
 
@@ -67,9 +70,13 @@ public class ActivityFormatter
 		return snapshot(PostKind.CA_SNAPSHOT, account, accountHash, tasks, at);
 	}
 
-	public Snapshot clogSnapshot(String account, long accountHash, List<OwnedItem> items, Instant at)
+	/** Game count and Complete are part of the fingerprint, so the same items with a different verdict are sent again. */
+	public Snapshot clogSnapshot(String account, long accountHash, CapturedLog captured, Instant at)
 	{
-		return snapshot(PostKind.CLOG_SNAPSHOT, account, accountHash, items, at);
+		Map<String, String> verdict = new LinkedHashMap<>();
+		verdict.put("Game count", String.valueOf(captured.getGameCount()));
+		verdict.put("Complete", captured.isComplete() ? "yes" : "no");
+		return snapshot(PostKind.CLOG_SNAPSHOT, account, accountHash, new SnapshotContent(captured.getItems(), verdict), at);
 	}
 
 	public Snapshot pbSnapshot(String account, long accountHash, List<StoredPersonalBest> bests, Instant at)
@@ -101,15 +108,33 @@ public class ActivityFormatter
 		return kind.name().toLowerCase(Locale.ROOT);
 	}
 
-	/**
-	 * The fingerprint covers the entries only, so a snapshot taken later with the same content counts as unchanged.
-	 */
 	private Snapshot snapshot(PostKind kind, String account, long accountHash, List<?> entries, Instant at)
 	{
+		return snapshot(kind, account, accountHash, new SnapshotContent(entries, Map.of()), at);
+	}
+
+	/**
+	 * The fingerprint covers the entries and the extra fields only, so a snapshot taken later with the same content
+	 * counts as unchanged. Without extra fields it is the entries alone, which keeps the fingerprints of CA and PB
+	 * snapshots the bot already has, so they are not all sent again.
+	 */
+	private Snapshot snapshot(PostKind kind, String account, long accountHash, SnapshotContent content, Instant at)
+	{
+		List<?> entries = content.getEntries();
+		Map<String, String> extra = content.getExtra();
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("Items", String.valueOf(entries.size()));
+		fields.putAll(extra);
 		PostPayload payload = new PostPayload(kind.getName(), Nonce.next(), account, String.valueOf(accountHash), at.toString(),
 			fields, entries, null);
-		return new Snapshot(payload, DeliveredSnapshots.fingerprint(gson.toJson(entries)));
+		String fingerprinted = extra.isEmpty() ? gson.toJson(entries) : gson.toJson(entries) + "|" + gson.toJson(extra);
+		return new Snapshot(payload, DeliveredSnapshots.fingerprint(fingerprinted));
+	}
+
+	@Value
+	private static class SnapshotContent
+	{
+		List<?> entries;
+		Map<String, String> extra;
 	}
 }
