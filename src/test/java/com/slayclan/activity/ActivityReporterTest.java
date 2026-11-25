@@ -1,5 +1,6 @@
 package com.slayclan.activity;
 
+import com.slayclan.PluginVersion;
 import static org.junit.Assert.assertTrue;
 import com.google.gson.Gson;
 import com.slayclan.discord.BotClient;
@@ -10,6 +11,7 @@ import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
+import com.slayclan.discord.PostProblems;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -99,8 +102,8 @@ public class ActivityReporterTest
 
 		reporter.retry(targets::next, List.of(first, second));
 
-		verify(botClient).send(eq(TARGET), eq(first.getPayload()), isNull());
-		verify(botClient).send(eq(moved), eq(second.getPayload()), isNull());
+		verify(botClient).send(eq(TARGET), resendOf(first.getPayload()), isNull());
+		verify(botClient).send(eq(moved), resendOf(second.getPayload()), isNull());
 	}
 
 	@Test
@@ -226,7 +229,7 @@ public class ActivityReporterTest
 
 		ArgumentCaptor<String> remembered = ArgumentCaptor.forClass(String.class);
 		verify(deliveredSnapshots, times(1)).markDelivered(eq(PostKind.STATUS), eq(ACCOUNT), remembered.capture());
-		assertEquals(DeliveredSnapshots.fingerprint(String.join("|", "Clanmate", "1/0/0/0/0/0", "0/0/0/0/0/0", "10/100", "0/0, 0/0, 0/0, 0/0, 0/0")),
+		assertEquals(DeliveredSnapshots.fingerprint(String.join("|", "Clanmate", "1/0/0/0/0/0", "0/0/0/0/0/0", "10/100", "0/0, 0/0, 0/0, 0/0, 0/0", PluginVersion.VERSION)),
 			remembered.getValue());
 	}
 
@@ -347,7 +350,7 @@ public class ActivityReporterTest
 		reporter.retry(() -> TARGET, List.of(kept));
 
 		ArgumentCaptor<byte[]> sent = ArgumentCaptor.forClass(byte[].class);
-		verify(botClient, times(2)).send(eq(TARGET), eq(kept.getPayload()), sent.capture());
+		verify(botClient, times(2)).send(eq(TARGET), resendOf(kept.getPayload()), sent.capture());
 		assertArrayEquals(SCREENSHOT, sent.getAllValues().get(1));
 	}
 
@@ -385,13 +388,73 @@ public class ActivityReporterTest
 	}
 
 	@Test
+	public void aResentPostTellsStaffWhichTryDeliveredIt()
+	{
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner")).withFailedSends(2);
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		ArgumentCaptor<PostPayload> sent = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), sent.capture(), isNull());
+		assertEquals("tries=3", sent.getValue().getFields().get("Problems"));
+		assertEquals(PluginVersion.VERSION, sent.getValue().getFields().get("Plugin version"));
+	}
+
+	@Test
+	public void aResentPostWhoseKeptScreenshotIsGoneTellsStaffItWasLost()
+	{
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner"), true);
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		ArgumentCaptor<PostPayload> sent = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), sent.capture(), isNull());
+		assertEquals("tries=2,screenshot_lost", sent.getValue().getFields().get("Problems"));
+	}
+
+	@Test
+	public void aResendTheBotStillCannotTakeIsCountedForTheNextTry()
+	{
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.undelivered("The clan bot could not be reached.")));
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner"));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		verify(pendingPostStore).countFailedSend(kept);
+	}
+
+	@Test
+	public void aResentPostWhoseFirstScreenshotFailedTellsStaffBothProblems()
+	{
+		PostPayload failed = PostProblems.with(payload("Cave Runner"), PostProblems.SCREENSHOT_FAILED);
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", failed);
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		ArgumentCaptor<PostPayload> sent = ArgumentCaptor.forClass(PostPayload.class);
+		verify(botClient).send(eq(TARGET), sent.capture(), isNull());
+		assertEquals("screenshot_failed,tries=2", sent.getValue().getFields().get("Problems"));
+	}
+
+	@Test
+	public void aResendBlockedByTheSettingsIsStillCountedForTheNextTry()
+	{
+		when(botClient.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(BotReply.blocked(BotReply.Blocker.TOKEN_REJECTED, "Token not accepted.")));
+		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner"));
+
+		reporter.retry(() -> TARGET, List.of(kept));
+
+		verify(pendingPostStore).countFailedSend(kept);
+	}
+
+	@Test
 	public void aRetriedPostWhoseScreenshotIsGoneIsSentWithoutOne()
 	{
 		PendingPost kept = new PendingPost("2026-10-10T18:00:00Z", payload("Cave Runner"), true);
 
 		reporter.retry(() -> TARGET, List.of(kept));
 
-		verify(botClient).send(eq(TARGET), eq(kept.getPayload()), isNull());
+		verify(botClient).send(eq(TARGET), resendOf(kept.getPayload()), isNull());
 		verify(pendingPostStore).remove(kept);
 	}
 
@@ -431,4 +494,11 @@ public class ActivityReporterTest
 		java.util.Arrays.sort(names);
 		return List.of(names);
 	}
+
+	// A resent post carries its try number, so it is matched on the post it repeats
+	private static PostPayload resendOf(PostPayload payload)
+	{
+		return argThat(sent -> sent != null && payload.getNonce().equals(sent.getNonce()));
+	}
+
 }

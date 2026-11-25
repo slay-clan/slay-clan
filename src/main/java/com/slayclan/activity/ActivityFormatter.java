@@ -1,10 +1,12 @@
 package com.slayclan.activity;
 
 import com.google.gson.Gson;
+import com.slayclan.PluginVersion;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.Nonce;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
+import com.slayclan.discord.PostProblems;
 import com.slayclan.trigger.TimedLine;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -57,6 +59,7 @@ public class ActivityFormatter
 		fields.put("CA completed", ca.completedText());
 		fields.put("CA points", String.valueOf(ca.points()));
 		fields.put("CA tier status", ca.tierStatusText());
+		fields.put(PostProblems.VERSION_FIELD, PluginVersion.VERSION);
 		if (clog.isSentByGame())
 		{
 			fields.put("Log slots", clog.slotsText());

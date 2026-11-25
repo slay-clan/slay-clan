@@ -18,6 +18,7 @@ import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.discord.PostPayload;
+import com.slayclan.PluginVersion;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
 import java.time.Instant;
@@ -84,6 +85,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -408,7 +410,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 
-		verify(botClient, times(1)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(1)).send(eq(TARGET), resendOf(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -424,7 +426,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 
-		verify(botClient, times(2)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(2)).send(eq(TARGET), resendOf(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -439,7 +441,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 
-		verify(botClient, times(1)).send(eq(TARGET), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient, times(1)).send(eq(TARGET), resendOf(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -1112,7 +1114,7 @@ public class SlayClanPluginFlowTest
 		login();
 		ticks(16);
 
-		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), resendOf(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -1133,7 +1135,7 @@ public class SlayClanPluginFlowTest
 		verify(executor).schedule(followUp.capture(), anyLong(), any());
 		followUp.getValue().run();
 
-		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), eq(pending.getPayload()), (byte[]) any());
+		verify(botClient).send(eq(new BotTarget("https://moved.example/api/v1/posts", TOKEN)), resendOf(pending.getPayload()), (byte[]) any());
 	}
 
 	@Test
@@ -1200,6 +1202,38 @@ public class SlayClanPluginFlowTest
 		chat("Your completed Theatre of Blood count is: <col=ff0000>6</col>.");
 		ticks(3);
 		assertEquals(List.of("Any Raid"), postedTasks());
+	}
+
+	@Test
+	public void aTaskPostWhoseScreenshotFailedTellsStaffAndWarnsThePlayer()
+	{
+		doAnswer(invocation ->
+		{
+			Consumer<byte[]> onCaptured = invocation.getArgument(0);
+			onCaptured.accept(null);
+			return null;
+		}).when(screenshotService).capture(any());
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		login();
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		PostPayload task = posted("task").get(0);
+		assertEquals("screenshot_failed", task.getFields().get("Problems"));
+		assertEquals(PluginVersion.VERSION, task.getFields().get("Plugin version"));
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("the screenshot failed, the post goes to the clan without one"), isNull());
+	}
+
+	@Test
+	public void aTaskPostWithAScreenshotCarriesNoProblems()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		login();
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		assertFalse(posted("task").get(0).getFields().containsKey("Problems"));
 	}
 
 	@Test
@@ -2096,4 +2130,11 @@ public class SlayClanPluginFlowTest
 		}
 		return name.toString();
 	}
+
+	// A resent post carries its try number, so it is matched on the post it repeats
+	private static PostPayload resendOf(PostPayload payload)
+	{
+		return argThat(sent -> sent != null && payload.getNonce().equals(sent.getNonce()));
+	}
+
 }

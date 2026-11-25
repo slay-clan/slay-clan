@@ -1,11 +1,13 @@
 package com.slayclan.activity;
 
+import com.slayclan.PluginVersion;
 import com.slayclan.discord.BotClient;
 import com.slayclan.discord.BotReply;
 import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
+import com.slayclan.discord.PostProblems;
 import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostPayload;
 import java.time.Instant;
@@ -73,7 +75,7 @@ public class ActivityReporter
 		}
 		PendingPost first = pending.get(0);
 		return keptScreenshotOf(first)
-			.thenCompose(png -> botClient.send(target.get(), first.getPayload(), png))
+			.thenCompose(png -> botClient.send(target.get(), resent(first, png), png))
 			.thenCompose(reply ->
 			{
 				answers.tell(reply);
@@ -83,12 +85,28 @@ public class ActivityReporter
 					discardScreenshotOf(first);
 					settleTask(first.getTaskId(), reply);
 				}
+				else
+				{
+					pendingPostStore.countFailedSend(first);
+				}
 				if (reply.isBlocked())
 				{
 					return CompletableFuture.completedFuture(null);
 				}
 				return retry(target, pending.subList(1, pending.size()));
 			});
+	}
+
+	// Staff see on the review post that it came late, and why it has no screenshot when the kept one was gone
+	private static PostPayload resent(PendingPost post, byte[] png)
+	{
+		PostPayload payload = PostProblems.with(post.getPayload(), PostProblems.sentOnTry(post.nextTry()));
+		return screenshotLost(post, png) ? PostProblems.with(payload, PostProblems.SCREENSHOT_LOST) : payload;
+	}
+
+	private static boolean screenshotLost(PendingPost post, byte[] png)
+	{
+		return post.isScreenshotKept() && png == null;
 	}
 
 	private CompletableFuture<byte[]> keptScreenshotOf(PendingPost post)
@@ -128,7 +146,8 @@ public class ActivityReporter
 		CollectionLogStatus clog)
 	{
 		String fingerprint = DeliveredSnapshots.fingerprint(
-			String.join("|", account, ca.completedText(), ca.tierStatusText(), clog.slotsText(), clog.categoriesText()));
+			String.join("|", account, ca.completedText(), ca.tierStatusText(), clog.slotsText(), clog.categoriesText(),
+				PluginVersion.VERSION));
 		sendIfChanged(target, PostKind.STATUS, accountHash, fingerprint, formatter.status(account, ca, clog, Instant.now()));
 	}
 
