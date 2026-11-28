@@ -11,6 +11,16 @@ public class RemoteConfig
 	private List<TaskDefinition> tasks;
 	private List<String> ignoredContent;
 	private String pbSeasonStart;
+	private List<String> rewardContainers;
+
+	/**
+	 * Objects whose rewards the Loot Tracker never reports, so their new inventory items are posted as drops. Names
+	 * match like {@link #ignores}. Without the list no container is watched.
+	 */
+	public boolean isRewardContainer(String objectName)
+	{
+		return rewardContainers != null && rewardContainers.stream().anyMatch(pattern -> Names.matches(pattern, objectName));
+	}
 
 	/**
 	 * True when the clan has switched this boss or raid off: no task and no personal best is posted for it.

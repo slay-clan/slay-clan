@@ -18,6 +18,7 @@ import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.discord.PostPayload;
+import com.slayclan.drop.UntrackedDrops;
 import com.slayclan.PluginVersion;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
@@ -43,6 +44,8 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.ScriptEvent;
 import net.runelite.api.StructComposition;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.Player;
 import net.runelite.api.WorldView;
 import net.runelite.api.clan.ClanMember;
@@ -50,6 +53,8 @@ import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.VarbitChanged;
@@ -114,6 +119,12 @@ public class SlayClanPluginFlowTest
 	private static final String ME = "Clanmate";
 	private static final String OUTSIDER = "Stranger";
 	private static final int HORN_OF_BRAN = 32000;
+	private static final int RING_OF_ENDURANCE = 24844;
+	private static final int SHARK = 385;
+	private static final int DRAGON_DART_TIP = 11232;
+	private static final int TWISTED_BOW = 20997;
+	private static final String RING_NAME = "Ring of endurance (uncharged)";
+	private static final String GRAND_COFFIN = "Grand Hallowed Coffin";
 	private static final byte[] PLAIN_SCREENSHOT = {1};
 
 	@Mock
@@ -2049,6 +2060,278 @@ public class SlayClanPluginFlowTest
 		assertEquals(List.of(), posted("drop"));
 		assertEquals(List.of("Valuable drop Dragonbone necklace (5,000,000 gp) not posted: not in the configured clan Slay Clan"),
 			valuableDropLogLines());
+	}
+
+	@Test
+	public void valuableNewCollectionLogItemTheLootTrackerNeverReportsIsPostedOnceAsADropFromTheCollectionLog()
+	{
+		tasks(dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals(RING_NAME, drop.get("Item"));
+		assertEquals(UntrackedDrops.COLLECTION_LOG_SOURCE, drop.get("Source"));
+	}
+
+	@Test
+	public void newCollectionLogItemTheLootTrackerReportsShortlyAfterIsPostedOnceFromTheBoss()
+	{
+		tasks(dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS - 1);
+		loot("Vorkath", RING_NAME, 4_000_000L);
+		ticks(20);
+
+		assertEquals("Vorkath", postedDrop().get("Source"));
+	}
+
+	@Test
+	public void newCollectionLogItemTheLootTrackerReportedJustBeforeIsPostedOnceFromTheBoss()
+	{
+		tasks(dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+
+		loot("Vorkath", RING_NAME, 4_000_000L);
+		ticks(1);
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		assertEquals("Vorkath", postedDrop().get("Source"));
+	}
+
+	@Test
+	public void newCollectionLogItemWorthLessThanTheMinimumIsNotPosted()
+	{
+		tasks(dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 100_000L, false);
+
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void stackableNewCollectionLogItemIsNotPostedAsADrop()
+	{
+		tasks(dropsFrom500k());
+		knownItem(DRAGON_DART_TIP, "Dragon dart tip", 2_000_000L, true);
+
+		newCollectionLogItem("Dragon dart tip");
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void newCollectionLogItemInsideChambersOfXericWaitsForTheChestInsteadOfPostingFromTheCollectionLog()
+	{
+		tasks(dropsFrom500k());
+		knownItem(TWISTED_BOW, "Twisted bow", 1_000_000_000L, false);
+		when(client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON)).thenReturn(1);
+
+		newCollectionLogItem("Twisted bow");
+		ticks(200);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void itemThatAppearsAfterOpeningAListedRewardContainerIsPostedWithTheContainerAsSource()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		knownItem(SHARK, "Shark", 1_000L, false);
+		inventory(new Item(SHARK, 1), new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		ticks(3);
+		inventory(new Item(SHARK, 1), new Item(RING_OF_ENDURANCE, 1));
+		ticks(3);
+
+		Map<String, String> drop = postedDrop();
+		assertEquals(RING_NAME, drop.get("Item"));
+		assertEquals(GRAND_COFFIN, drop.get("Source"));
+	}
+
+	@Test
+	public void valuableItemEnteringTheInventoryWithoutOpeningARewardContainerIsNeverPosted()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject("Bank booth", MenuAction.GAME_OBJECT_SECOND_OPTION);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(30);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void openingAContainerTheClanConfigDoesNotListNeverPostsWhatAppearsInTheInventory()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of("Reward Chest"));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(3);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void clanConfigWithoutRewardContainersNeverPostsWhatAppearsAfterOpeningACoffin()
+	{
+		tasks(dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(3);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void rewardContainerItemThatIsAlsoANewCollectionLogItemIsPostedOnceWithTheContainerAsSource()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		ticks(2);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		assertEquals(GRAND_COFFIN, postedDrop().get("Source"));
+	}
+
+	@Test
+	public void walkingAndSwitchingAPrayerOnTheWayToTheCoffinStillPostsItsReward()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		click(MenuAction.WALK, -1, "Walk here");
+		click(MenuAction.CC_OP, InterfaceID.PRAYERBOOK << 16, "Activate");
+		click(MenuAction.CC_OP, InterfaceID.ORBS << 16, "Toggle Run");
+		ticks(2);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(3);
+
+		assertEquals(GRAND_COFFIN, postedDrop().get("Source"));
+	}
+
+	@Test
+	public void takingAGroundItemAfterOpeningTheCoffinPostsNothing()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		click(MenuAction.GROUND_ITEM_THIRD_OPTION, -1, "Take");
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(5);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void coffinOpenedBeforeAWorldHopPostsNothingThatAppearsAfterIt()
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		gameState(GameState.HOPPING);
+		gameState(GameState.LOGGED_IN);
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(5);
+
+		assertEquals(List.of(), posted("drop"));
+	}
+
+	@Test
+	public void dropFromTheCollectionLogNamesNoTeamAndCompletesNoClanOnlyLootTask()
+	{
+		tasks(withItems(task("clan-ring", "LOOT", null, 0, true), RING_NAME), dropsFrom500k());
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+
+		newCollectionLogItem(RING_NAME);
+		ticks(UntrackedDrops.COLLECTION_LOG_WAIT_TICKS + 20);
+
+		Map<String, String> drop = postedDrop();
+		assertNull(drop.get("Party"));
+		assertNull(drop.get("Clan team"));
+		assertEquals(List.of(), postedTasks());
+	}
+
+	private void click(MenuAction action, int widgetId, String option)
+	{
+		MenuEntry entry = mock(MenuEntry.class);
+		when(entry.getType()).thenReturn(action);
+		when(entry.getTarget()).thenReturn("");
+		when(entry.getOption()).thenReturn(option);
+		when(entry.getParam1()).thenReturn(widgetId);
+		plugin.onMenuOptionClicked(new MenuOptionClicked(entry));
+	}
+
+	private void knownItem(int id, String name, long price, boolean stackable)
+	{
+		ItemComposition item = mock(ItemComposition.class);
+		when(item.getName()).thenReturn(name);
+		when(item.isStackable()).thenReturn(stackable);
+		when(itemManager.getItemComposition(id)).thenReturn(item);
+		when(itemManager.canonicalize(id)).thenReturn(id);
+		when(itemManager.getItemPriceWithSource(id, false)).thenReturn(price);
+		ItemPrice searchHit = new ItemPrice();
+		searchHit.setId(id);
+		searchHit.setName(name);
+		when(itemManager.search(name)).thenReturn(List.of(searchHit));
+	}
+
+	private void newCollectionLogItem(String name)
+	{
+		chat("New item added to your collection log: <col=ef1020>" + name + "</col>");
+	}
+
+	private void clickObject(String name, MenuAction action)
+	{
+		MenuEntry entry = mock(MenuEntry.class);
+		when(entry.getType()).thenReturn(action);
+		when(entry.getTarget()).thenReturn("<col=ffff>" + name);
+		when(entry.getOption()).thenReturn("Open");
+		plugin.onMenuOptionClicked(new MenuOptionClicked(entry));
+	}
+
+	private void inventory(Item... items)
+	{
+		ItemContainer inventory = mock(ItemContainer.class);
+		when(inventory.getItems()).thenReturn(items);
+		when(client.getItemContainer(InventoryID.INV)).thenReturn(inventory);
+		plugin.onItemContainerChanged(new ItemContainerChanged(InventoryID.INV, inventory));
 	}
 
 	private List<String> valuableDropLogLines()

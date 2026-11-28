@@ -35,8 +35,13 @@ import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.drop.DropEvaluator;
 import com.slayclan.drop.DropJudgement;
+import com.slayclan.drop.InventoryChangingClicks;
+import com.slayclan.drop.LootTrackerSettledContent;
+import com.slayclan.drop.NamedItem;
 import com.slayclan.drop.PricedItem;
+import com.slayclan.drop.RewardContainerWatch;
 import com.slayclan.drop.SkippedDrop;
+import com.slayclan.drop.UntrackedDrops;
 import com.slayclan.drop.ValuableDrop;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
@@ -70,6 +75,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -92,8 +98,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.MenuAction;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.clan.ClanSettings;
@@ -105,6 +113,7 @@ import net.runelite.api.events.ScriptCallbackEvent;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InterfaceID;
@@ -167,6 +176,9 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		SlayClanConfig.CONFIG_URL_KEY, SlayClanConfig.ENABLED_KEY, SlayClanConfig.CLAN_TOKEN_KEY, SlayClanConfig.BOT_URL_KEY);
 	private static final String RETIRED_DISCORD_NAME_KEY = "discordName";
 	private static final String KEPT_SCREENSHOT_FOLDER = "pending-screenshots";
+	private static final Set<MenuAction> GAME_OBJECT_OPTIONS = EnumSet.of(MenuAction.GAME_OBJECT_FIRST_OPTION,
+		MenuAction.GAME_OBJECT_SECOND_OPTION, MenuAction.GAME_OBJECT_THIRD_OPTION, MenuAction.GAME_OBJECT_FOURTH_OPTION,
+		MenuAction.GAME_OBJECT_FIFTH_OPTION);
 
 	@Inject
 	private Client client;
@@ -238,6 +250,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	private final CombatAchievementDetector combatAchievementDetector = new CombatAchievementDetector();
 	private final LootTaskEvaluator lootTaskEvaluator = new LootTaskEvaluator();
 	private final DuplicatePetDetector duplicatePetDetector = new DuplicatePetDetector();
+	private final UntrackedDrops untrackedDrops = new UntrackedDrops();
+	private final RewardContainerWatch rewardContainerWatch = new RewardContainerWatch();
 
 	private ScheduledFuture<?> refreshTask;
 	private ScheduledFuture<?> configChangeRefresh;
@@ -326,6 +340,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		recentPersonalBests.clear();
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
+		untrackedDrops.clear();
+		rewardContainerWatch.clear();
 		caJudgementPending = false;
 		pbJudgementPending = false;
 		lastRaidTeamSizeTick = Integer.MIN_VALUE / 2;
@@ -444,6 +460,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		pbSnapshotPending = true;
 		refusedThisLogin.clear();
 		postedThisLogin.clear();
+		untrackedDrops.clear();
+		rewardContainerWatch.clear();
 		caJudgementPending = false;
 		pbJudgementPending = false;
 		collectionLogCapture.onLogin();
@@ -466,7 +484,53 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		{
 			thresholdCheckPending = true;
 			contractTracker.onInventory(itemNames(event.getItemContainer()), client.getTickCount());
+			rewardContainerWatch.inventoryChanged(event.getItemContainer().getItems(), client.getTickCount())
+				.ifPresent(reward -> untrackedDrops.containerGave(reward.getContainer(), named(reward.getGained()), client.getTickCount()));
 		}
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		Optional<String> container = rewardContainerOpened(event);
+		if (container.isPresent())
+		{
+			rewardContainerWatch.clicked(container.get(), inventoryItems(), client.getTickCount());
+		}
+		else if (InventoryChangingClicks.canBringItemsIn(event.getMenuAction(), event.getParam1(), event.getMenuOption()))
+		{
+			rewardContainerWatch.clickedSomethingElse();
+		}
+	}
+
+	private Optional<String> rewardContainerOpened(MenuOptionClicked event)
+	{
+		if (!GAME_OBJECT_OPTIONS.contains(event.getMenuAction()))
+		{
+			return Optional.empty();
+		}
+		String objectName = Text.removeTags(event.getMenuTarget()).trim();
+		return Optional.ofNullable(remoteConfigService.current())
+			.filter(remoteConfig -> remoteConfig.isRewardContainer(objectName))
+			.map(remoteConfig -> objectName);
+	}
+
+	private Item[] inventoryItems()
+	{
+		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
+		return inventory == null ? new Item[0] : inventory.getItems();
+	}
+
+	private List<NamedItem> named(List<Item> items)
+	{
+		return items.stream()
+			.map(item -> new NamedItem(itemName(item.getId()), item.getId(), item.getQuantity()))
+			.collect(Collectors.toList());
+	}
+
+	private String itemName(int itemId)
+	{
+		return itemManager.getItemComposition(itemManager.canonicalize(itemId)).getName();
 	}
 
 	@Subscribe
@@ -579,6 +643,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		Optional<String> clogItem = collectionLogDetector.detect(message);
 		clogItem.ifPresent(this::handleCollectionLog);
 		clogItem.ifPresent(this::reportCollectionLogItem);
+		clogItem.ifPresent(item -> awaitLootTrackerFor(item, tick));
 		personalBestDetector.detect(message).ifPresent(best -> recentPersonalBests.add(new TickedPersonalBest(best, tick)));
 		Optional<CombatAchievement> achievement = combatAchievementDetector.detect(message);
 		achievement.ifPresent(found ->
@@ -673,6 +738,27 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		recentTimes.removeIf(time -> tick - time.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		recentPersonalBests.removeIf(best -> tick - best.getTick() > RECENT_TIME_MAX_AGE_TICKS);
 		reportActivity(tick);
+		untrackedDrops.due(tick).forEach(loot -> handleLoot(loot.getSource(), itemStacks(loot.getItems())));
+	}
+
+	private void awaitLootTrackerFor(String item, int tick)
+	{
+		if (LootTrackerSettledContent.insideContentTheLootTrackerSettlesItself(client))
+		{
+			return;
+		}
+		int itemId = itemId(item);
+		if (itemId < 0)
+		{
+			log.debug("New collection log item {} has no known item id, so it cannot be judged as a drop", item);
+			return;
+		}
+		untrackedDrops.collectionLogItem(new NamedItem(item, itemId, 1), tick);
+	}
+
+	private static List<ItemStack> itemStacks(List<NamedItem> items)
+	{
+		return items.stream().map(item -> new ItemStack(item.getId(), item.getQuantity())).collect(Collectors.toList());
 	}
 
 	private boolean thresholdCheckDue(int tick)
@@ -1161,6 +1247,8 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 	@Subscribe
 	public void onLootReceived(LootReceived event)
 	{
+		untrackedDrops.lootTrackerReported(
+			event.getItems().stream().map(item -> itemName(item.getId())).collect(Collectors.toList()), client.getTickCount());
 		if (event.getType() == LootRecordType.PLAYER || PVP_LOOT_CHEST.equals(event.getName()))
 		{
 			log.debug("Ignoring PvP loot from {}", event.getName());
@@ -1556,7 +1644,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 		}
 
 		List<LootMatch> lootMatches = lootMatches(lootTasks, source, pricedItems);
-		Optional<ClanTeam> team = teamMatters(drops, lootMatches) ? clanTeamAt(source, remoteConfig) : Optional.empty();
+		Optional<ClanTeam> team = teamToRead(drops, lootMatches, source) ? clanTeamAt(source, remoteConfig) : Optional.empty();
 		Instant completedAt = Instant.now();
 		String account = account();
 		List<PostPayload> posts = new ArrayList<>();
@@ -1637,6 +1725,12 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			}
 		}
 		return matches;
+	}
+
+	// The collection log line says nothing about where the item came from, so whoever stands nearby is no team
+	private static boolean teamToRead(List<ValuableDrop> drops, List<LootMatch> lootMatches, String source)
+	{
+		return !UntrackedDrops.COLLECTION_LOG_SOURCE.equals(source) && teamMatters(drops, lootMatches);
 	}
 
 	private static boolean teamMatters(List<ValuableDrop> drops, List<LootMatch> lootMatches)

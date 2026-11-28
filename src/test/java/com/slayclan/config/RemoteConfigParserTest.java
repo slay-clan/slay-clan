@@ -65,6 +65,40 @@ public class RemoteConfigParserTest
 	}
 
 	@Test
+	public void readsTheRewardContainersStaffListedInTheClanConfig()
+	{
+		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"rewardContainers\":[\"Grand Hallowed Coffin\",\"Reward Chest*\"],\"tasks\"");
+
+		RemoteConfig config = parser.parse(json).orElseThrow();
+
+		assertTrue(config.isRewardContainer("grand hallowed coffin"));
+		assertTrue(config.isRewardContainer("Reward Chest (Corrupted)"));
+		assertFalse(config.isRewardContainer("Bank chest"));
+	}
+
+	@Test
+	public void rewardContainerPatternsThatWouldMatchAlmostAnyObjectAreIgnored()
+	{
+		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"rewardContainers\":[\"*\",\"Ch*\",\"Cra*\",\"Coff*\"],\"tasks\"");
+
+		RemoteConfig config = parser.parse(json).orElseThrow();
+
+		assertFalse(config.isRewardContainer("Chest"));
+		assertFalse(config.isRewardContainer("Crate"));
+		assertFalse(config.isRewardContainer("Herb patch"));
+		assertTrue(config.isRewardContainer("Coffin"));
+	}
+
+	@Test
+	public void clanConfigWithoutRewardContainersWatchesNoContainerAtAll()
+	{
+		RemoteConfig config = parser.parse(TestConfigs.VALID_JSON).orElseThrow();
+
+		assertFalse(config.isRewardContainer("Grand Hallowed Coffin"));
+		assertFalse(config.isRewardContainer("Coffin"));
+	}
+
+	@Test
 	public void readsThePbSeasonStartAndLeavesItUnsetWhenMissing()
 	{
 		String json = TestConfigs.VALID_JSON.replace("\"tasks\"", "\"pbSeasonStart\":\"2026-11-16\",\"tasks\"");

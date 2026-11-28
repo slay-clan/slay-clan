@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -20,6 +21,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RemoteConfigParser
 {
+	private static final String WILDCARD = "*";
+	private static final int MIN_WILDCARD_PREFIX = 4;
+
 	private final Gson gson;
 
 	public RemoteConfigParser(Gson gson)
@@ -91,7 +95,22 @@ public class RemoteConfigParser
 		config.setTasks(tasks(root.get("tasks")));
 		config.setIgnoredContent(strings(root.get("ignoredContent")));
 		config.setPbSeasonStart(string(root, "pbSeasonStart"));
+		config.setRewardContainers(strings(root.get("rewardContainers")).stream()
+			.filter(RemoteConfigParser::namesFewEnoughObjects)
+			.collect(Collectors.toList()));
 		return config;
+	}
+
+	// A pattern like "*" or "Ch*" would turn stalls, crates and farming patches into drop posts
+	private static boolean namesFewEnoughObjects(String containerPattern)
+	{
+		String trimmed = containerPattern.trim();
+		boolean tooBroad = trimmed.endsWith(WILDCARD) && trimmed.length() - WILDCARD.length() < MIN_WILDCARD_PREFIX;
+		if (tooBroad)
+		{
+			log.debug("Reward container pattern '{}' ignored: a wildcard needs at least {} letters before it", trimmed, MIN_WILDCARD_PREFIX);
+		}
+		return !tooBroad;
 	}
 
 	/**
