@@ -17,6 +17,7 @@ public interface SlayClanConfig extends Config
 	String HIDE_PRIVATE_MESSAGES_KEY = "hidePrivateMessages";
 	String SHOW_GAME_CHAT_KEY = "showGameChat";
 	String HIDE_PLAYER_CHAT_KEY = "hidePlayerChat";
+	String SHOW_PB_NOT_SENT_KEY = "showPbNotSent";
 
 	@ConfigItem(
 		keyName = ENABLED_KEY,
@@ -95,5 +96,16 @@ public interface SlayClanConfig extends Config
 	default boolean hidePrivateMessages()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = SHOW_PB_NOT_SENT_KEY,
+		name = "Show PBs the bot did not post",
+		description = "Shows a chat line when the clan bot does not post a personal best, for example when it is under the board minimum or not faster than your season best",
+		position = 7
+	)
+	default boolean showPbNotSent()
+	{
+		return false;
 	}
 }

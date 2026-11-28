@@ -78,7 +78,7 @@ public class ActivityReporter
 			.thenCompose(png -> botClient.send(target.get(), resent(first, png), png))
 			.thenCompose(reply ->
 			{
-				answers.tell(reply);
+				answers.tell(reply, first.getPayload().postKind());
 				if (reply.isDelivered())
 				{
 					pendingPostStore.remove(first);
@@ -182,7 +182,7 @@ public class ActivityReporter
 		lastSent.put(key, fingerprint);
 		botClient.send(target, payload, null).thenAccept(reply ->
 		{
-			answers.tell(reply);
+			answers.tell(reply, kind);
 			if (!reply.isRecorded())
 			{
 				log.info("{} not recorded, it is sent again next time", kind);
@@ -202,7 +202,7 @@ public class ActivityReporter
 
 	private void settle(BotReply reply, PostPayload payload, byte[] png)
 	{
-		answers.tell(reply);
+		answers.tell(reply, payload.postKind());
 		if (!reply.isDelivered())
 		{
 			log.info("Keeping an undelivered {} post for retry", payload.getKind());

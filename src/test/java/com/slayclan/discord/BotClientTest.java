@@ -31,6 +31,9 @@ public class BotClientTest
 	private final PostPayload clog = new PostPayload("clog", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
 		Map.of("Item", "Vorki"), null, null);
 
+	private final PostPayload pb = new PostPayload("pb", "0123456789abcdef", "Clanmate", null, "2026-10-10T18:00:00Z",
+		Map.of("Boss", "Zulrah"), null, null);
+
 	private ScheduledExecutorService executor;
 	private BotClient client;
 
@@ -262,6 +265,29 @@ public class BotClientTest
 		server.enqueue(recorded());
 
 		assertTrue(send(task, null).isRecorded());
+	}
+
+	@Test
+	public void recordedAnswerWithANoteIsAPbNotSentToTheBoard() throws Exception
+	{
+		server.enqueue(json(200, "{\"status\":\"recorded\",\"message\":\"Personal best 1:00.00 at Zulrah not sent to the board: under the minimum.\",\"note\":\"under the minimum.\",\"warnings\":[]}"));
+
+		BotReply reply = send(pb, null);
+
+		assertTrue(reply.isRecorded());
+		assertTrue(reply.isPbNotPosted(PostKind.PB));
+		assertEquals("Personal best 1:00.00 at Zulrah not sent to the board: under the minimum.", reply.getMessage());
+	}
+
+	@Test
+	public void recordedAnswerWithoutANoteIsAPlainRecordedReply() throws Exception
+	{
+		server.enqueue(json(200, "{\"status\":\"recorded\",\"message\":\"Recorded.\",\"warnings\":[]}"));
+
+		BotReply reply = send(pb, null);
+
+		assertTrue(reply.isRecorded());
+		assertFalse(reply.isPbNotPosted(PostKind.PB));
 	}
 
 	private BotReply send(PostPayload payload, byte[] png) throws Exception
