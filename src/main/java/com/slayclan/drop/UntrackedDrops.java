@@ -28,37 +28,37 @@ public class UntrackedDrops
 	public static final int CONTAINER_WAIT_TICKS = 2;
 
 	private final List<Candidate> waiting = new ArrayList<>();
-	private final Map<String, Integer> handledAt = new HashMap<>();
+	private final Map<ItemKey, Integer> handledAt = new HashMap<>();
 	// A new collection log item is a first copy, so an earlier post of that name this login was that very copy
-	private final Set<String> postedThisLogin = new HashSet<>();
+	private final Set<ItemKey> postedThisLogin = new HashSet<>();
 
 	public void lootTrackerReported(Collection<String> itemNames, int tick)
 	{
 		for (String name : itemNames)
 		{
-			String key = Names.normalize(name);
-			waiting.removeIf(candidate -> candidate.getKey().equals(key));
+			ItemKey key = ItemKey.of(name);
+			waiting.removeIf(candidate -> candidate.isFor(key));
 			handled(key, tick);
 		}
 	}
 
-	public void containerGave(String container, List<NamedItem> items, int tick)
+	public void containerGave(UntrackedLoot reward, int tick)
 	{
-		for (NamedItem item : items)
+		for (NamedItem item : reward.getItems())
 		{
-			String key = Names.normalize(item.getName());
-			if (handledWithin(key, tick, CONTAINER_WAIT_TICKS))
+			ItemKey key = ItemKey.of(item.getName());
+			if (handledJustNow(key, tick))
 			{
 				continue;
 			}
-			waiting.removeIf(candidate -> candidate.isFromCollectionLog() && candidate.getKey().equals(key));
-			waiting.add(new Candidate(container, item, key, tick, CONTAINER_WAIT_TICKS));
+			waiting.removeIf(candidate -> candidate.isFromCollectionLog() && candidate.isFor(key));
+			waiting.add(new Candidate(reward.getSource(), item, key, tick, CONTAINER_WAIT_TICKS));
 		}
 	}
 
 	public void collectionLogItem(NamedItem item, int tick)
 	{
-		String key = Names.normalize(item.getName());
+		ItemKey key = ItemKey.of(item.getName());
 		if (alreadyCovered(key))
 		{
 			return;
@@ -96,21 +96,32 @@ public class UntrackedDrops
 		postedThisLogin.clear();
 	}
 
-	private void handled(String key, int tick)
+	private void handled(ItemKey key, int tick)
 	{
 		handledAt.put(key, tick);
 		postedThisLogin.add(key);
 	}
 
-	private boolean alreadyCovered(String key)
+	private boolean alreadyCovered(ItemKey key)
 	{
-		return postedThisLogin.contains(key) || waiting.stream().anyMatch(candidate -> candidate.getKey().equals(key));
+		return postedThisLogin.contains(key) || waiting.stream().anyMatch(candidate -> candidate.isFor(key));
 	}
 
-	private boolean handledWithin(String key, int tick, int ticks)
+	private boolean handledJustNow(ItemKey key, int tick)
 	{
 		Integer handled = handledAt.get(key);
-		return handled != null && tick - handled <= ticks;
+		return handled != null && tick - handled <= CONTAINER_WAIT_TICKS;
+	}
+
+	@Value
+	private static class ItemKey
+	{
+		String normalizedName;
+
+		static ItemKey of(String itemName)
+		{
+			return new ItemKey(Names.normalize(itemName));
+		}
 	}
 
 	@Value
@@ -118,13 +129,18 @@ public class UntrackedDrops
 	{
 		String source;
 		NamedItem item;
-		String key;
+		ItemKey key;
 		int since;
 		int waitTicks;
 
 		boolean isFromCollectionLog()
 		{
 			return COLLECTION_LOG_SOURCE.equals(source);
+		}
+
+		boolean isFor(ItemKey other)
+		{
+			return key.equals(other);
 		}
 	}
 }

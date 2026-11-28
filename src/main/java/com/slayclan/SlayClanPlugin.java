@@ -42,6 +42,7 @@ import com.slayclan.drop.PricedItem;
 import com.slayclan.drop.RewardContainerWatch;
 import com.slayclan.drop.SkippedDrop;
 import com.slayclan.drop.UntrackedDrops;
+import com.slayclan.drop.UntrackedLoot;
 import com.slayclan.drop.ValuableDrop;
 import com.slayclan.progress.TaskProgressStore;
 import com.slayclan.raid.RaidParticipantReader;
@@ -485,7 +486,7 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 			thresholdCheckPending = true;
 			contractTracker.onInventory(itemNames(event.getItemContainer()), client.getTickCount());
 			rewardContainerWatch.inventoryChanged(event.getItemContainer().getItems(), client.getTickCount())
-				.ifPresent(reward -> untrackedDrops.containerGave(reward.getContainer(), named(reward.getGained()), client.getTickCount()));
+				.ifPresent(reward -> untrackedDrops.containerGave(new UntrackedLoot(reward.getContainer(), named(reward.getGained())), client.getTickCount()));
 		}
 	}
 

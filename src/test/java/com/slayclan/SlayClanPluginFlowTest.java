@@ -2163,56 +2163,42 @@ public class SlayClanPluginFlowTest
 	@Test
 	public void valuableItemEnteringTheInventoryWithoutOpeningARewardContainerIsNeverPosted()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers(GRAND_COFFIN);
 
 		clickObject("Bank booth", MenuAction.GAME_OBJECT_SECOND_OPTION);
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(30);
+		ringEntersTheInventory();
 
-		assertEquals(List.of(), posted("drop"));
+		assertNoDropPosted();
 	}
 
 	@Test
 	public void openingAContainerTheClanConfigDoesNotListNeverPostsWhatAppearsInTheInventory()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of("Reward Chest"));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers("Reward Chest");
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(3);
+		openGrandCoffin();
+		ringEntersTheInventory();
 
-		assertEquals(List.of(), posted("drop"));
+		assertNoDropPosted();
 	}
 
 	@Test
 	public void clanConfigWithoutRewardContainersNeverPostsWhatAppearsAfterOpeningACoffin()
 	{
-		tasks(dropsFrom500k());
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers();
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(3);
+		openGrandCoffin();
+		ringEntersTheInventory();
 
-		assertEquals(List.of(), posted("drop"));
+		assertNoDropPosted();
 	}
 
 	@Test
 	public void rewardContainerItemThatIsAlsoANewCollectionLogItemIsPostedOnceWithTheContainerAsSource()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers(GRAND_COFFIN);
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		openGrandCoffin();
 		ticks(2);
 		inventory(new Item(RING_OF_ENDURANCE, 1));
 		newCollectionLogItem(RING_NAME);
@@ -2224,18 +2210,13 @@ public class SlayClanPluginFlowTest
 	@Test
 	public void walkingAndSwitchingAPrayerOnTheWayToTheCoffinStillPostsItsReward()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers(GRAND_COFFIN);
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		openGrandCoffin();
 		click(MenuAction.WALK, -1, "Walk here");
 		click(MenuAction.CC_OP, InterfaceID.PRAYERBOOK << 16, "Activate");
 		click(MenuAction.CC_OP, InterfaceID.ORBS << 16, "Toggle Run");
-		ticks(2);
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(3);
+		ringEntersTheInventory();
 
 		assertEquals(GRAND_COFFIN, postedDrop().get("Source"));
 	}
@@ -2243,33 +2224,50 @@ public class SlayClanPluginFlowTest
 	@Test
 	public void takingAGroundItemAfterOpeningTheCoffinPostsNothing()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers(GRAND_COFFIN);
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		openGrandCoffin();
 		click(MenuAction.GROUND_ITEM_THIRD_OPTION, -1, "Take");
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(5);
+		ringEntersTheInventory();
 
-		assertEquals(List.of(), posted("drop"));
+		assertNoDropPosted();
 	}
 
 	@Test
 	public void coffinOpenedBeforeAWorldHopPostsNothingThatAppearsAfterIt()
 	{
-		tasks(dropsFrom500k());
-		remoteConfig.setRewardContainers(List.of(GRAND_COFFIN));
-		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
-		inventory(new Item(-1, 0));
+		valuableRingKnownAndInventoryEmptyWithRewardContainers(GRAND_COFFIN);
 
-		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+		openGrandCoffin();
 		gameState(GameState.HOPPING);
 		gameState(GameState.LOGGED_IN);
-		inventory(new Item(RING_OF_ENDURANCE, 1));
-		ticks(5);
+		ringEntersTheInventory();
 
+		assertNoDropPosted();
+	}
+
+	private void valuableRingKnownAndInventoryEmptyWithRewardContainers(String... containers)
+	{
+		tasks(dropsFrom500k());
+		remoteConfig.setRewardContainers(List.of(containers));
+		knownItem(RING_OF_ENDURANCE, RING_NAME, 4_000_000L, false);
+		inventory(new Item(-1, 0));
+	}
+
+	private void openGrandCoffin()
+	{
+		clickObject(GRAND_COFFIN, MenuAction.GAME_OBJECT_FIRST_OPTION);
+	}
+
+	// Past the container wait, so a reward that counts has been posted by the end
+	private void ringEntersTheInventory()
+	{
+		inventory(new Item(RING_OF_ENDURANCE, 1));
+		ticks(UntrackedDrops.CONTAINER_WAIT_TICKS + 3);
+	}
+
+	private void assertNoDropPosted()
+	{
 		assertEquals(List.of(), posted("drop"));
 	}
 

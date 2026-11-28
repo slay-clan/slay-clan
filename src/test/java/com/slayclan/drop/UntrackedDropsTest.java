@@ -93,7 +93,7 @@ public class UntrackedDropsTest
 	@Test
 	public void rewardFromAContainerIsPostedWithTheContainerAsSourceAfterAShortWait()
 	{
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 
 		assertEquals(List.of(), drops.due(100 + UntrackedDrops.CONTAINER_WAIT_TICKS));
 		assertEquals(List.of(new UntrackedLoot(COFFIN, List.of(RING_OF_ENDURANCE))), drops.due(100 + UntrackedDrops.CONTAINER_WAIT_TICKS + 1));
@@ -102,10 +102,10 @@ public class UntrackedDropsTest
 	@Test
 	public void sameItemFromTheSameContainerLaterInTheSessionIsPostedAgain()
 	{
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 		drops.due(200);
 
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 1000);
+		coffinGave(RING_OF_ENDURANCE, 1000);
 
 		assertEquals(1, drops.due(1100).size());
 	}
@@ -113,7 +113,7 @@ public class UntrackedDropsTest
 	@Test
 	public void containerRewardTheLootTrackerAlsoReportsIsLeftToTheLootTracker()
 	{
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 		drops.lootTrackerReported(List.of("Ring of endurance (uncharged)"), 100);
 
 		assertEquals(List.of(), drops.due(200));
@@ -123,7 +123,7 @@ public class UntrackedDropsTest
 	public void containerRewardTheLootTrackerReportedATickEarlierIsLeftToTheLootTracker()
 	{
 		drops.lootTrackerReported(List.of("Ring of endurance (uncharged)"), 99);
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 
 		assertEquals(List.of(), drops.due(200));
 	}
@@ -131,7 +131,7 @@ public class UntrackedDropsTest
 	@Test
 	public void containerRewardAndItsCollectionLogLineArePostedOnceUnderTheContainer()
 	{
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 		drops.collectionLogItem(RING_OF_ENDURANCE, 100);
 
 		assertEquals(List.of(new UntrackedLoot(COFFIN, List.of(RING_OF_ENDURANCE))), drops.due(200));
@@ -142,7 +142,7 @@ public class UntrackedDropsTest
 	public void collectionLogLineBeforeTheContainerRewardArrivesIsPostedOnceUnderTheContainer()
 	{
 		drops.collectionLogItem(RING_OF_ENDURANCE, 100);
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 101);
+		coffinGave(RING_OF_ENDURANCE, 101);
 
 		assertEquals(List.of(new UntrackedLoot(COFFIN, List.of(RING_OF_ENDURANCE))), drops.due(200));
 	}
@@ -150,7 +150,7 @@ public class UntrackedDropsTest
 	@Test
 	public void collectionLogLineLongAfterTheContainerRewardWasPostedIsNotPostedAgain()
 	{
-		drops.containerGave(COFFIN, List.of(RING_OF_ENDURANCE), 100);
+		coffinGave(RING_OF_ENDURANCE, 100);
 		assertEquals(1, drops.due(200).size());
 
 		drops.collectionLogItem(RING_OF_ENDURANCE, 1000);
@@ -162,10 +162,15 @@ public class UntrackedDropsTest
 	public void nothingThatWasWaitingIsPostedAfterAWorldHop()
 	{
 		drops.collectionLogItem(RING_OF_ENDURANCE, 100);
-		drops.containerGave(COFFIN, List.of(DRAGON_PICKAXE), 100);
+		coffinGave(DRAGON_PICKAXE, 100);
 
 		drops.clear();
 
 		assertEquals(List.of(), drops.due(300));
+	}
+
+	private void coffinGave(NamedItem item, int tick)
+	{
+		drops.containerGave(new UntrackedLoot(COFFIN, List.of(item)), tick);
 	}
 }
