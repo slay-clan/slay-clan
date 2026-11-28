@@ -45,6 +45,7 @@ public class BotClient
 	// The bot's limit resets within a minute; anything longer is left to the pending post retry
 	private static final long MAX_RETRY_MILLIS = 60_000;
 	private static final long RESPONSE_TIMEOUT_SECONDS = 60;
+	private static final long SEND_TIMEOUT_SECONDS = 60;
 	private static final int UNAUTHORIZED = 401;
 	private static final int NOT_FOUND = 404;
 	private static final int TOO_LARGE = 413;
@@ -72,9 +73,11 @@ public class BotClient
 	{
 		// The bot writes the sheet and posts the review message before it answers, and handles posts one at a
 		// time, so a login burst takes well over OkHttp's ten second default. Redirects are not followed, since
-		// a post may only go to the address the member set, never to one a response names
+		// a post may only go to the address the member set, never to one a response names. A full-size screenshot on
+		// a slow upload can take longer than OkHttp's ten second default write timeout
 		this.httpClient = httpClient.newBuilder()
 			.readTimeout(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+			.writeTimeout(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 			.followRedirects(false)
 			.followSslRedirects(false)
 			.build();
@@ -107,6 +110,11 @@ public class BotClient
 	int pendingRetryCount()
 	{
 		return scheduledRetries.size();
+	}
+
+	int writeTimeoutMillis()
+	{
+		return httpClient.writeTimeoutMillis();
 	}
 
 	private RequestBody buildBody(PostPayload payload, byte[] png)

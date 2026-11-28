@@ -257,6 +257,12 @@ public class BotClientTest
 	}
 
 	@Test
+	public void aSlowScreenshotUploadIsNotCutOffBeforeAMinute()
+	{
+		assertEquals(60_000, client.writeTimeoutMillis());
+	}
+
+	@Test
 	public void recordedAnswerCountsAsRecorded() throws Exception
 	{
 		server.enqueue(recorded());
