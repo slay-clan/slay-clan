@@ -34,25 +34,32 @@ public class BotReply
 	Blocker blocker;
 	Verdict verdict;
 	String reason;
+	boolean notSent;
 
 	public static BotReply recorded(String message)
 	{
-		return new BotReply(true, message, null, Verdict.RECORDED, null);
+		return new BotReply(true, message, null, Verdict.RECORDED, null, false);
+	}
+
+	/** Recorded like any other answer, but the bot took it no further and said why. */
+	public static BotReply notSent(String message)
+	{
+		return new BotReply(true, message, null, Verdict.RECORDED, null, true);
 	}
 
 	public static BotReply refused(String message, String reason)
 	{
-		return new BotReply(true, message, null, Verdict.REFUSED, reason);
+		return new BotReply(true, message, null, Verdict.REFUSED, reason, false);
 	}
 
 	public static BotReply undelivered(String message)
 	{
-		return new BotReply(false, message, null, Verdict.UNANSWERED, null);
+		return new BotReply(false, message, null, Verdict.UNANSWERED, null, false);
 	}
 
 	public static BotReply blocked(Blocker blocker, String message)
 	{
-		return new BotReply(false, message, blocker, Verdict.UNANSWERED, null);
+		return new BotReply(false, message, blocker, Verdict.UNANSWERED, null, false);
 	}
 
 	public boolean isBlocked()
@@ -68,5 +75,10 @@ public class BotReply
 	public boolean isRefused()
 	{
 		return verdict == Verdict.REFUSED;
+	}
+
+	public boolean isPbNotPosted(PostKind kind)
+	{
+		return kind == PostKind.PB && notSent;
 	}
 }

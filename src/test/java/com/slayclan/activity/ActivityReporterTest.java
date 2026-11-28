@@ -64,7 +64,7 @@ public class ActivityReporterTest
 		reporter = new ActivityReporter(new ActivityFormatter(new Gson()), botClient, pendingPostStore, keptScreenshots, deliveredSnapshots, new BotAnswers()
 		{
 			@Override
-			public void tell(BotReply reply)
+			public void tell(BotReply reply, PostKind kind)
 			{
 				told.add(reply);
 			}

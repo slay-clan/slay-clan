@@ -16,6 +16,7 @@ import com.slayclan.discord.BotTarget;
 import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.PendingPost;
 import com.slayclan.discord.PendingPostStore;
+import com.slayclan.discord.PostKind;
 import com.slayclan.discord.ScreenshotService;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.PluginVersion;
@@ -1296,6 +1297,79 @@ public class SlayClanPluginFlowTest
 		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
 			contains("Slay Clan: Not recorded: already completed."), isNull());
 		verify(pendingPostStore, never()).add(any(), any(), anyBoolean());
+	}
+
+	@Test
+	public void aPbTheBotKeptOffTheBoardStaysOutOfTheChat()
+	{
+		tasks();
+		botKeepsEveryPostOffTheBoard("Personal best 0:55.00 at Zulrah not sent to the board: under the board minimum.");
+
+		login();
+		killWithNewPersonalBest();
+
+		assertEquals(1, posted("pb").size());
+		verify(client, never()).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("under the board minimum."), isNull());
+	}
+
+	@Test
+	public void aPbTheBotKeptOffTheBoardShowsWhenTheSettingIsOn()
+	{
+		tasks();
+		when(config.showPbNotSent()).thenReturn(true);
+		botKeepsEveryPostOffTheBoard("Personal best 0:55.00 at Zulrah not sent to the board: under the board minimum.");
+
+		login();
+		killWithNewPersonalBest();
+
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("Slay Clan: Personal best 0:55.00 at Zulrah not sent to the board: under the board minimum."), isNull());
+	}
+
+	@Test
+	public void aPbRefusedForAMissingScreenshotShowsEvenWhenNotSentPbsAreHidden()
+	{
+		tasks();
+		when(botClient.send(any(), any(), (byte[]) any())).thenReturn(CompletableFuture.completedFuture(
+			BotReply.refused("Personal best not recorded: the screenshot is missing.", "the screenshot is missing.")));
+
+		login();
+		killWithNewPersonalBest();
+
+		verify(client, atLeastOnce()).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("Slay Clan: Personal best not recorded: the screenshot is missing."), isNull());
+	}
+
+	@Test
+	public void aClanTaskTheBotDidNotSendForReviewStillShowsInTheChat()
+	{
+		tasks(task("any-raid", "RAID:*", null, 0, false));
+		botKeepsEveryPostOffTheBoard("Clan task Any raid (Easy) not sent for review: you cannot get points for this task right now.");
+
+		chat("Your completed Theatre of Blood count is: <col=ff0000>5</col>.");
+		ticks(3);
+
+		verify(client).addChatMessage(eq(ChatMessageType.GAMEMESSAGE), eq(""),
+			contains("Slay Clan: Clan task Any raid (Easy) not sent for review: you cannot get points for this task right now."), isNull());
+	}
+
+	private void botKeepsEveryPostOffTheBoard(String message)
+	{
+		when(botClient.send(any(), any(), (byte[]) any())).thenAnswer(invocation ->
+		{
+			PostPayload payload = invocation.getArgument(1);
+			BotReply reply = payload.postKind().isFeed() ? BotReply.recorded(null) : BotReply.notSent(message);
+			return CompletableFuture.completedFuture(reply);
+		});
+	}
+
+	private void killWithNewPersonalBest()
+	{
+		ticks(16);
+		chat("Fight duration: <col=ff0000>0:55</col> (new personal best)");
+		chat("Your Zulrah kill count is: <col=ff0000>10</col>.");
+		ticks(3);
 	}
 
 	@Test

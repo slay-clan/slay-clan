@@ -30,6 +30,7 @@ import com.slayclan.discord.GameViewWatch;
 import com.slayclan.discord.KeptScreenshots;
 import com.slayclan.discord.MessageFormatter;
 import com.slayclan.discord.PendingPostStore;
+import com.slayclan.discord.PostKind;
 import com.slayclan.discord.PostProblems;
 import com.slayclan.discord.PostPayload;
 import com.slayclan.discord.ScreenshotService;
@@ -1921,13 +1922,23 @@ public class SlayClanPlugin extends Plugin implements BotAnswers
 
 	// The bot answers on an HTTP thread, and the chat is only written from the client thread
 	@Override
-	public void tell(BotReply reply)
+	public void tell(BotReply reply, PostKind kind)
 	{
-		if (reply.getMessage() == null || blockerAlreadySaid(reply))
+		if (staysOutOfTheChat(reply, kind))
 		{
 			return;
 		}
 		clientThread.invoke(() -> warnInChat("Slay Clan: " + reply.getMessage()));
+	}
+
+	private boolean staysOutOfTheChat(BotReply reply, PostKind kind)
+	{
+		return reply.getMessage() == null || blockerAlreadySaid(reply) || pbNotPostedAndHidden(reply, kind);
+	}
+
+	private boolean pbNotPostedAndHidden(BotReply reply, PostKind kind)
+	{
+		return reply.isPbNotPosted(kind) && !config.showPbNotSent();
 	}
 
 	private boolean blockerAlreadySaid(BotReply reply)

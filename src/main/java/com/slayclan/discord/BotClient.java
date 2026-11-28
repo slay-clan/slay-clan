@@ -65,6 +65,7 @@ public class BotClient
 		String status;
 		String message;
 		String reason;
+		String note;
 	}
 
 	@Inject
@@ -197,7 +198,16 @@ public class BotClient
 		{
 			return BotReply.refused(answer.getMessage(), answer.getReason());
 		}
+		if (carriesNote(answer))
+		{
+			return BotReply.notSent(chatLine(payload, answer));
+		}
 		return BotReply.recorded(chatLine(payload, answer));
+	}
+
+	private static boolean carriesNote(Answer answer)
+	{
+		return answer != null && answer.getNote() != null && !answer.getNote().isEmpty();
 	}
 
 	private static boolean rateLimitedWithRetryLeft(Response response, boolean retryOnRateLimit)
